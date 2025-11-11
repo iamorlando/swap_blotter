@@ -7,6 +7,7 @@ let pyodide: any = null;
 let initialized = false;
 let running = false;
 let timer: number | null = null;
+let lastRates: Record<string, number> = {};
 
 async function init(baseUrl: string, pythonUrl: string) {
   try {
@@ -18,7 +19,21 @@ async function init(baseUrl: string, pythonUrl: string) {
     const py = await res.text();
     pyodide.runPython(py);
     initialized = true;
-    ctx.postMessage({ type: "ready" });
+    // seed lastRates
+    try {
+      const initJson: string = pyodide.runPython(
+        "import json\n" +
+          "df = get_datafeed().reset_index()\n" +
+          "json.dumps(df.to_dict(orient='records'))\n"
+      );
+      const arr = JSON.parse(initJson);
+      lastRates = Object.create(null);
+      for (const r of arr) lastRates[r.Term] = r.Rate;
+      ctx.postMessage({ type: "ready" });
+      ctx.postMessage({ type: "data", data: arr });
+    } catch (e) {
+      ctx.postMessage({ type: "error", error: String(e) });
+    }
   } catch (e) {
     ctx.postMessage({ type: "error", error: String(e) });
   }
@@ -40,6 +55,9 @@ function dfToJson(): any[] {
 
 function postData() {
   const data = dfToJson();
+  // refresh lastRates
+  lastRates = Object.create(null);
+  for (const r of data) lastRates[r.Term] = r.Rate;
   ctx.postMessage({ type: "data", data });
 }
 
@@ -47,8 +65,22 @@ function scheduleNext(intervalMs: number) {
   if (!running) return;
   timer = setTimeout(() => {
     try {
-      pyodide.runPython(`simulate_tick()`);
-      postData();
+      const payloadStr: string = pyodide.runPython(
+        "import json\n" +
+          "label, new_rate = simulate_tick()\n" +
+          "df = get_datafeed().reset_index()\n" +
+          "json.dumps({'label': label, 'new_rate': float(new_rate), 'df': df.to_dict(orient='records')})\n"
+      );
+      const payload = JSON.parse(payloadStr);
+      const label = payload.label as string;
+      const newRate = payload.new_rate as number;
+      const data = payload.df as any[];
+      const prev = lastRates[label];
+      const dir = prev == null ? "flat" : newRate > prev ? "up" : newRate < prev ? "down" : "flat";
+      // update lastRates
+      lastRates = Object.create(null);
+      for (const r of data) lastRates[r.Term] = r.Rate;
+      ctx.postMessage({ type: "data", data, movedTerm: label, dir });
     } catch (e) {
       ctx.postMessage({ type: "error", error: String(e) });
       running = false;
@@ -70,12 +102,24 @@ ctx.onmessage = async (ev: MessageEvent) => {
   } else if (msg.type === "simulateOnce") {
     if (!initialized) return;
     try {
-      pyodide.runPython(`simulate_tick()`);
+      const payloadStr: string = pyodide.runPython(
+        "import json\n" +
+          "label, new_rate = simulate_tick()\n" +
+          "df = get_datafeed().reset_index()\n" +
+          "json.dumps({'label': label, 'new_rate': float(new_rate), 'df': df.to_dict(orient='records')})\n"
+      );
+      const payload = JSON.parse(payloadStr);
+      const label = payload.label as string;
+      const newRate = payload.new_rate as number;
+      const data = payload.df as any[];
+      const prev = lastRates[label];
+      const dir = prev == null ? "flat" : newRate > prev ? "up" : newRate < prev ? "down" : "flat";
+      lastRates = Object.create(null);
+      for (const r of data) lastRates[r.Term] = r.Rate;
+      ctx.postMessage({ type: "data", data, movedTerm: label, dir });
     } catch (e) {
       ctx.postMessage({ type: "error", error: String(e) });
-      return;
     }
-    postData();
   } else if (msg.type === "startAuto") {
     if (!initialized) return;
     const intervalMs = typeof msg.intervalMs === "number" ? msg.intervalMs : 1000;
@@ -99,4 +143,3 @@ ctx.onmessage = async (ev: MessageEvent) => {
     }
   }
 };
-

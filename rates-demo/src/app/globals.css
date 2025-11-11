@@ -4,3 +4,15 @@
 
 html, body { height: 100%; }
 .chart-border { border: 1px solid rgba(55,65,81,0.9); border-radius: 0.5rem; }
+
+/* Flash animations for up/down ticks */
+@keyframes flashUpTint {
+  0% { color: #34d399; fill: #34d399; }
+  100% { color: #e5e7eb; fill: #e5e7eb; }
+}
+@keyframes flashDownTint {
+  0% { color: #f87171; fill: #f87171; }
+  100% { color: #e5e7eb; fill: #e5e7eb; }
+}
+.flash-up { animation: flashUpTint 600ms ease-out 1; color: #34d399 !important; fill: #34d399 !important; }
+.flash-down { animation: flashDownTint 600ms ease-out 1; color: #f87171 !important; fill: #f87171 !important; }
