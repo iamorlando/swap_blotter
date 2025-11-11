@@ -2,17 +2,5 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  --bg: 255 255 255;
-  --fg: 17 24 39;
-}
-
-html, body {
-  height: 100%;
-}
-
-body {
-  background-color: rgb(var(--bg));
-  color: rgb(var(--fg));
-}
-
+html, body { height: 100%; }
+.chart-border { border: 1px solid rgba(55,65,81,0.9); border-radius: 0.5rem; }

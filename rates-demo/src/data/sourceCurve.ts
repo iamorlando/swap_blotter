@@ -1,0 +1,37 @@
+export type CurvePoint = { Term: string; Rate: number };
+
+// Sourced from public/py/datafeed.py _source (do not edit here; keep in sync if that file changes)
+export const SOURCE_CURVE: CurvePoint[] = [
+  { Term: "1W", Rate: 5.309 },
+  { Term: "2W", Rate: 5.312 },
+  { Term: "3W", Rate: 5.314 },
+  { Term: "1M", Rate: 5.318 },
+  { Term: "2M", Rate: 5.351 },
+  { Term: "3M", Rate: 5.382 },
+  { Term: "4M", Rate: 5.41 },
+  { Term: "5M", Rate: 5.435 },
+  { Term: "6M", Rate: 5.452 },
+  { Term: "7M", Rate: 5.467 },
+  { Term: "8M", Rate: 5.471 },
+  { Term: "9M", Rate: 5.47 },
+  { Term: "10M", Rate: 5.467 },
+  { Term: "11M", Rate: 5.457 },
+  { Term: "12M", Rate: 5.445 },
+  { Term: "18M", Rate: 5.208 },
+  { Term: "2Y", Rate: 4.99 },
+  { Term: "3Y", Rate: 4.65 },
+  { Term: "4Y", Rate: 4.458 },
+  { Term: "5Y", Rate: 4.352 },
+  { Term: "6Y", Rate: 4.291 },
+  { Term: "7Y", Rate: 4.25 },
+  { Term: "8Y", Rate: 4.224 },
+  { Term: "9Y", Rate: 4.21 },
+  { Term: "10Y", Rate: 4.201 },
+  { Term: "12Y", Rate: 4.198 },
+  { Term: "15Y", Rate: 4.199 },
+  { Term: "20Y", Rate: 4.153 },
+  { Term: "25Y", Rate: 4.047 },
+  { Term: "30Y", Rate: 3.941 },
+  { Term: "40Y", Rate: 3.719 },
+];
+
