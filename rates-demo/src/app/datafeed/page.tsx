@@ -3,6 +3,7 @@
 import * as React from "react";
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { DataGrid, GridColDef } from "@mui/x-data-grid";
+import { Slider } from "@mui/material";
 import VerticalSplit from "@/components/VerticalSplit";
 import HorizontalSplit from "@/components/HorizontalSplit";
 
@@ -12,11 +13,12 @@ export default function DatafeedPage() {
   const workerRef = React.useRef<Worker | null>(null);
   const [data, setData] = React.useState<Array<{ Term: string; Rate: number }>>([]);
   const [ready, setReady] = React.useState(false);
-  const [auto, setAuto] = React.useState(false);
+  const [auto, setAuto] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
   const [movedTerm, setMovedTerm] = React.useState<string | null>(null);
   const [moveDir, setMoveDir] = React.useState<"up" | "down" | "flat" | null>(null);
   const [seq, setSeq] = React.useState(0);
+  const [fps, setFps] = React.useState(1); // ticks per second
 
   React.useEffect(() => {
     const w = new Worker(new URL("../../workers/datafeed.worker.ts", import.meta.url));
@@ -26,6 +28,9 @@ export default function DatafeedPage() {
       if (msg.type === "ready") {
         setReady(true);
         w.postMessage({ type: "get" });
+        // start auto by default at 1 Hz
+        const intervalMs = 1000; // 1 second
+        w.postMessage({ type: "startAuto", intervalMs });
       } else if (msg.type === "data") {
         setData(msg.data as Array<{ Term: string; Rate: number }>);
         if (msg.movedTerm) {
@@ -79,35 +84,57 @@ export default function DatafeedPage() {
     },
   ];
 
-  const simulateOnce = () => {
-    workerRef.current?.postMessage({ type: "simulateOnce" });
-  };
-
   const toggleAuto = () => {
     const now = !auto;
     setAuto(now);
-    if (now) workerRef.current?.postMessage({ type: "startAuto", intervalMs: 100 });
+    const intervalMs = Math.max(100, Math.round(1000 / Math.max(1, Math.min(10, fps))))
+    if (now) workerRef.current?.postMessage({ type: "startAuto", intervalMs });
     else workerRef.current?.postMessage({ type: "stopAuto" });
+  };
+
+  const onFpsChange = (_: Event, val: number | number[]) => {
+    const v = Array.isArray(val) ? val[0] : val;
+    setFps(v);
+    const intervalMs = Math.max(100, Math.round(1000 / Math.max(1, Math.min(10, v))));
+    workerRef.current?.postMessage({ type: auto ? "updateInterval" : "noop", intervalMs });
   };
 
   const Controls = (
     <div className="flex items-center justify-between mb-3">
-      <div className="text-sm text-gray-400">
-        {error ? <span className="text-red-500">{error}</span> : ready ? "datafeed ready" : "loading pyodide..."}
+      {/* Left group: slider only */}
+      <div className="flex items-start gap-4">
+        <div className="text-sm text-gray-300 whitespace-nowrap">Data refresh frequency</div>
+        <div className="w-56">
+          <Slider
+            value={fps}
+            min={1}
+            max={10}
+            step={1}
+            marks={Array.from({length:10},(_,i)=>{
+              const v=i+1; return {value:v,label: v===1? '1x': `${v}x`};
+            })}
+            onChange={onFpsChange}
+            valueLabelDisplay="auto"
+            valueLabelFormat={(v)=> v===1? '1x': `${v}x`}
+            sx={{ mt: 0.5 }}
+          />
+        </div>
       </div>
-      <div className="flex items-center gap-3">
-        <button
-          onClick={simulateOnce}
-          className="inline-flex items-center rounded-md border border-orange-500/40 bg-orange-500/10 px-3 py-1.5 text-orange-300 hover:bg-orange-500/20 focus:outline-none focus:ring-2 focus:ring-orange-500/50"
-        >
-          simulate market move
-        </button>
-        <label className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer select-none">
-          <div className={`w-10 h-6 rounded-full p-1 transition-colors ${auto ? "bg-green-500" : "bg-gray-600"}`} onClick={toggleAuto}>
+
+      {/* Right group: play/pause toggle aligned to end with labels */}
+      <div className="flex items-center">
+        <div className="flex items-center gap-2 text-sm text-gray-300 select-none">
+          <span className="text-gray-400">paused</span>
+          <div
+            className={`w-10 h-6 rounded-full p-1 transition-colors cursor-pointer ${auto ? "bg-green-500" : "bg-gray-600"}`}
+            onClick={toggleAuto}
+            role="switch"
+            aria-checked={auto}
+          >
             <div className={`h-4 w-4 bg-white rounded-full transition-transform ${auto ? "translate-x-4" : "translate-x-0"}`} />
           </div>
-          auto-run 1/s
-        </label>
+          <span className="text-gray-300">running</span>
+        </div>
       </div>
     </div>
   );
@@ -119,7 +146,7 @@ export default function DatafeedPage() {
     const cls = isMoved ? (moveDir === "up" ? "flash-up" : moveDir === "down" ? "flash-down" : "") : "";
     return (
       <g transform={`translate(${x},${y})`} key={`${label}-${seq}`}>
-        <text dy={16} textAnchor="middle" className={cls} style={{ fontSize: 12 }}>
+        <text dy={16} textAnchor="middle" className={cls} style={{ fontSize: 12, fill: '#e5e7eb' }}>
           {label}
         </text>
       </g>
@@ -172,37 +199,126 @@ export default function DatafeedPage() {
     </div>
   );
 
-  const makeSeries = React.useCallback(() => Array.from({ length: 24 }, (_, i) => ({ x: i, y: Math.sin(i / 3) + Math.random() * 0.2 })), []);
-  const [p1] = React.useState(makeSeries);
-  const [p2] = React.useState(makeSeries);
-  const [p3] = React.useState(makeSeries);
+  // Calibration worker and data
+  const calibRef = React.useRef<Worker | null>(null);
+  const [calibReady, setCalibReady] = React.useState(false);
+  const [discount, setDiscount] = React.useState<Array<{ term: string; df: number }>>([]);
+  const [zero, setZero] = React.useState<Array<{ term: string; zero_rate: number }>>([]);
+  const [forwardAnchors, setForwardAnchors] = React.useState<Array<{ term: string; days: number; forward_rate: number }>>([]);
+  const [forwardDaily, setForwardDaily] = React.useState<Array<{ day: number; rate: number }>>([]);
+  const [calibErr, setCalibErr] = React.useState<string | null>(null);
+  const [calibrating, setCalibrating] = React.useState(false);
 
-  const PlaceholderChart = ({ data }: { data: Array<{ x: number; y: number }> }) => (
-    <div className="w-full rounded-lg border border-gray-800 bg-gray-900 p-3">
-      <div className="h-40 w-full">
-        <ResponsiveContainer width="100%" height="100%">
-          <AreaChart data={data} margin={{ top: 6, right: 8, bottom: 0, left: 0 }}>
-            <defs>
-              <linearGradient id="phFill" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#60a5fa" stopOpacity={0.35} />
-                <stop offset="100%" stopColor="#60a5fa" stopOpacity={0.05} />
-              </linearGradient>
-            </defs>
-            <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
-            <XAxis dataKey="x" tick={{ fill: "#9ca3af", fontSize: 10 }} axisLine={{ stroke: "#374151" }} tickLine={{ stroke: "#374151" }} />
-            <YAxis tick={{ fill: "#9ca3af", fontSize: 10 }} axisLine={{ stroke: "#374151" }} tickLine={{ stroke: "#374151" }} />
-            <Area type="monotone" dataKey="y" stroke="#60a5fa" strokeWidth={1.5} fill="url(#phFill)" />
-          </AreaChart>
-        </ResponsiveContainer>
-      </div>
-    </div>
-  );
+  React.useEffect(() => {
+    const w = new Worker(new URL("../../workers/calibration.worker.ts", import.meta.url));
+    calibRef.current = w;
+    w.onmessage = (e: MessageEvent) => {
+      const msg = e.data || {};
+      if (msg.type === "ready") {
+        setCalibReady(true);
+      } else if (msg.type === "curves") {
+        setCalibrating(false);
+        setDiscount(msg.discount as any[]);
+        setZero(msg.zero as any[]);
+        const fw = (msg.forward as any[]).map((r: any) => ({ term: r.term, days: r.days, forward_rate: r.forward_rate }));
+        setForwardAnchors(fw);
+        // Build daily step function (left-constant)
+        const sorted = [...fw].sort((a,b)=>a.days-b.days);
+        const maxDay = sorted.length ? sorted[sorted.length-1].days : 0;
+        const daily: Array<{day:number; rate:number}> = [];
+        let idx = 0;
+        for (let d=0; d<=maxDay; d++) {
+          while (idx+1 < sorted.length && sorted[idx+1].days <= d) idx++;
+          const rate = sorted[idx]?.forward_rate ?? (sorted[0]?.forward_rate ?? 0);
+          daily.push({ day: d, rate });
+        }
+        setForwardDaily(daily);
+      } else if (msg.type === "error") {
+        setCalibrating(false);
+        setCalibErr(String(msg.error ?? "Unknown error"));
+      }
+    };
+    w.postMessage({ type: "init", baseUrl: "https://cdn.jsdelivr.net/pyodide/v0.26.1/full/", datafeedUrl: "/py/datafeed.py", calibrationUrl: "/py/curve_calibration.py" });
+    return () => {
+      w.terminate();
+      calibRef.current = null;
+    };
+  }, []);
+
+  const recalibrate = () => {
+    if (!calibReady) return;
+    setCalibrating(true);
+    calibRef.current?.postMessage({ type: "recalibrate", market: data });
+  };
 
   const RightPanel = (
-    <div className="p-6 space-y-4 min-w-[260px]">
-      <PlaceholderChart data={p1} />
-      <PlaceholderChart data={p2} />
-      <PlaceholderChart data={p3} />
+    <div className="p-6 space-y-4 min-w-[320px]">
+      <div className="flex items-center justify-between">
+        <div className="text-sm text-gray-400">{calibErr ? <span className="text-red-500">{calibErr}</span> : calibReady ? "calibration ready" : "loading rateslib..."}</div>
+        <button onClick={recalibrate} disabled={!calibReady || calibrating} className="inline-flex items-center rounded-md border border-blue-500/40 bg-blue-500/10 px-3 py-1.5 text-blue-300 hover:bg-blue-500/20 focus:outline-none focus:ring-2 focus:ring-blue-500/50 disabled:opacity-50">
+          {calibrating ? "recalibrating..." : "recalibrate"}
+        </button>
+      </div>
+
+      <div className="w-full rounded-lg border border-gray-800 bg-gray-900 p-3">
+        <div className="text-sm text-gray-300 mb-1">Discount Curve</div>
+        <div className="h-40 w-full">
+          <ResponsiveContainer width="100%" height="100%">
+            <AreaChart data={discount} margin={{ top: 6, right: 8, bottom: 0, left: 0 }}>
+              <defs>
+                <linearGradient id="dfFill" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#a78bfa" stopOpacity={0.35} />
+                  <stop offset="100%" stopColor="#a78bfa" stopOpacity={0.05} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
+              <XAxis dataKey="term" tick={{ fill: "#9ca3af", fontSize: 10 }} interval={0} axisLine={{ stroke: "#374151" }} tickLine={{ stroke: "#374151" }} />
+              <YAxis tick={{ fill: "#9ca3af", fontSize: 10 }} axisLine={{ stroke: "#374151" }} tickLine={{ stroke: "#374151" }} />
+              <Area type="monotone" dataKey="df" stroke="#a78bfa" strokeWidth={1.5} fill="url(#dfFill)" />
+            </AreaChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+
+      <div className="w-full rounded-lg border border-gray-800 bg-gray-900 p-3">
+        <div className="text-sm text-gray-300 mb-1">Zero Curve</div>
+        <div className="h-40 w-full">
+          <ResponsiveContainer width="100%" height="100%">
+            <AreaChart data={zero} margin={{ top: 6, right: 8, bottom: 0, left: 0 }}>
+              <defs>
+                <linearGradient id="zrFill" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#34d399" stopOpacity={0.35} />
+                  <stop offset="100%" stopColor="#34d399" stopOpacity={0.05} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
+              <XAxis dataKey="term" tick={{ fill: "#9ca3af", fontSize: 10 }} interval={0} axisLine={{ stroke: "#374151" }} tickLine={{ stroke: "#374151" }} />
+              <YAxis tick={{ fill: "#9ca3af", fontSize: 10 }} axisLine={{ stroke: "#374151" }} tickLine={{ stroke: "#374151" }} />
+              <Area type="monotone" dataKey="zero_rate" stroke="#34d399" strokeWidth={1.5} fill="url(#zrFill)" />
+            </AreaChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+
+      <div className="w-full rounded-lg border border-gray-800 bg-gray-900 p-3">
+        <div className="text-sm text-gray-300 mb-1">Forward Curve</div>
+        <div className="h-40 w-full">
+          <ResponsiveContainer width="100%" height="100%">
+            <AreaChart data={forwardDaily} margin={{ top: 6, right: 8, bottom: 0, left: 0 }}>
+              <defs>
+                <linearGradient id="fwFill" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#f59e0b" stopOpacity={0.35} />
+                  <stop offset="100%" stopColor="#f59e0b" stopOpacity={0.05} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
+              <XAxis dataKey="day" tick={{ fill: "#9ca3af", fontSize: 10 }} axisLine={{ stroke: "#374151" }} tickLine={{ stroke: "#374151" }} />
+              <YAxis tick={{ fill: "#9ca3af", fontSize: 10 }} axisLine={{ stroke: "#374151" }} tickLine={{ stroke: "#374151" }} />
+              <Area type="stepAfter" dataKey="rate" stroke="#f59e0b" strokeWidth={1.5} fill="url(#fwFill)" />
+            </AreaChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
     </div>
   );
 

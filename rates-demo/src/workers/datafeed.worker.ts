@@ -7,6 +7,7 @@ let pyodide: any = null;
 let initialized = false;
 let running = false;
 let timer: number | null = null;
+let currentIntervalMs = 1000;
 let lastRates: Record<string, number> = {};
 
 async function init(baseUrl: string, pythonUrl: string) {
@@ -61,7 +62,7 @@ function postData() {
   ctx.postMessage({ type: "data", data });
 }
 
-function scheduleNext(intervalMs: number) {
+function scheduleNext(_intervalMs: number) {
   if (!running) return;
   timer = setTimeout(() => {
     try {
@@ -86,8 +87,8 @@ function scheduleNext(intervalMs: number) {
       running = false;
       return;
     }
-    scheduleNext(intervalMs);
-  }, intervalMs) as unknown as number;
+    scheduleNext(currentIntervalMs);
+  }, currentIntervalMs) as unknown as number;
 }
 
 ctx.onmessage = async (ev: MessageEvent) => {
@@ -123,9 +124,18 @@ ctx.onmessage = async (ev: MessageEvent) => {
   } else if (msg.type === "startAuto") {
     if (!initialized) return;
     const intervalMs = typeof msg.intervalMs === "number" ? msg.intervalMs : 1000;
+    currentIntervalMs = intervalMs;
     if (!running) {
       running = true;
-      scheduleNext(intervalMs);
+      scheduleNext(currentIntervalMs);
+    }
+  } else if (msg.type === "updateInterval") {
+    const intervalMs = typeof msg.intervalMs === "number" ? msg.intervalMs : currentIntervalMs;
+    currentIntervalMs = intervalMs;
+    // If running, restart the timer with new interval
+    if (running) {
+      if (timer) clearTimeout(timer);
+      scheduleNext(currentIntervalMs);
     }
   } else if (msg.type === "stopAuto") {
     running = false;
