@@ -102,7 +102,7 @@ export default function DatafeedPage() {
   const Controls = (
     <div className="flex items-center justify-between mb-3">
       {/* Left group: slider only */}
-      <div className="flex items-start gap-4">
+      <div className="flex items-center gap-4">
         <div className="text-sm text-gray-300 whitespace-nowrap">Data refresh frequency</div>
         <div className="w-56">
           <Slider
@@ -116,15 +116,15 @@ export default function DatafeedPage() {
             onChange={onFpsChange}
             valueLabelDisplay="auto"
             valueLabelFormat={(v)=> v===1? '1x': `${v}x`}
-            sx={{ mt: 0.5 }}
+            sx={{ mt: 0 }}
           />
         </div>
       </div>
 
       {/* Right group: play/pause toggle aligned to end with labels */}
       <div className="flex items-center">
-        <div className="flex items-center gap-2 text-sm text-gray-300 select-none">
-          <span className="text-gray-400">paused</span>
+        <div className="flex items-center gap-2 text-sm select-none">
+          <span className={auto ? "text-gray-600" : "text-gray-200"}>paused</span>
           <div
             className={`w-10 h-6 rounded-full p-1 transition-colors cursor-pointer ${auto ? "bg-green-500" : "bg-gray-600"}`}
             onClick={toggleAuto}
@@ -133,7 +133,7 @@ export default function DatafeedPage() {
           >
             <div className={`h-4 w-4 bg-white rounded-full transition-transform ${auto ? "translate-x-4" : "translate-x-0"}`} />
           </div>
-          <span className="text-gray-300">running</span>
+          <span className={auto ? "text-gray-200" : "text-gray-600"}>running</span>
         </div>
       </div>
     </div>
@@ -304,7 +304,7 @@ export default function DatafeedPage() {
         <div className="text-sm text-gray-300 mb-1">Forward Curve</div>
         <div className="h-40 w-full">
           <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={forwardDaily} margin={{ top: 6, right: 8, bottom: 0, left: 0 }}>
+            <AreaChart data={[...forwardAnchors].sort((a,b)=>a.days-b.days)} margin={{ top: 6, right: 8, bottom: 0, left: 0 }}>
               <defs>
                 <linearGradient id="fwFill" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="0%" stopColor="#f59e0b" stopOpacity={0.35} />
@@ -312,9 +312,9 @@ export default function DatafeedPage() {
                 </linearGradient>
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
-              <XAxis dataKey="day" tick={{ fill: "#9ca3af", fontSize: 10 }} axisLine={{ stroke: "#374151" }} tickLine={{ stroke: "#374151" }} />
+            <XAxis dataKey="term" tick={{ fill: "#9ca3af", fontSize: 10 }} interval={0} axisLine={{ stroke: "#374151" }} tickLine={{ stroke: "#374151" }} />
               <YAxis tick={{ fill: "#9ca3af", fontSize: 10 }} axisLine={{ stroke: "#374151" }} tickLine={{ stroke: "#374151" }} />
-              <Area type="stepAfter" dataKey="rate" stroke="#f59e0b" strokeWidth={1.5} fill="url(#fwFill)" />
+              <Area type="stepAfter" dataKey="forward_rate" stroke="#f59e0b" strokeWidth={1.5} fill="url(#fwFill)" />
             </AreaChart>
           </ResponsiveContainer>
         </div>

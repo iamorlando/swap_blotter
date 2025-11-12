@@ -12,8 +12,8 @@ from .datafeed import _source
 today = datetime.now().date()
 valuation_date = dt(today.year, today.month, today.day)
 
-maturities = [add_tenor(valuation_date, _, "F", "nyc") for _ in _source["Term"]]
-terms = _source["Term"].to_list()
+maturities = [add_tenor(valuation_date, _, "F", "nyc") for _ in _source.index]
+terms = _source.index.to_list()
 sofr = Curve(
     id="sofr",
     convention="Act360",
@@ -41,35 +41,52 @@ def calibrate_curve(data: DataFrame) -> DataFrame:
     )
     return sofr
 
-
+display_terms = ["1B",
+                 "2B",
+                 "7D",
+                 "1M",
+                 "3M",
+                 "6M",
+                 "1Y",
+                 "2Y",
+                 "3Y",
+                 "5Y",
+                 "7Y",
+                 "10Y",
+                 "20Y",
+                 "30Y",
+                 "40Y"]
 def get_discount_factor_curve() -> pd.DataFrame:
     global sofr
-    global maturities
-    global terms
+    global display_terms
     return pd.DataFrame(
         columns=["df", "term"],
-        data=[(float(sofr.df(maturities[i])), terms[i]) for i in range(len(terms))],
+        data=[(float(sofr[add_tenor(valuation_date, display_terms[i], "F", "nyc")]), display_terms[i]) for i in range(len(display_terms))],
     ).set_index("term")
 
 def get_zero_rate_curve() -> pd.DataFrame:
     global sofr
-    global maturities
     global valuation_date
-    global terms
+    global display_terms
+    terms = display_terms
     return pd.DataFrame(
         columns=["zero_rate", "term"],
-        data=[(float(sofr.rate(valuation_date, maturities[i])), terms[i]) for i in range(len(terms))],
+        data=[(float(sofr.rate(valuation_date, add_tenor(valuation_date, display_terms[i], "F", "nyc"))), display_terms[i]) for i in range(len(display_terms))],
     ).set_index("term")
 
 def get_forward_rate_curve() -> pd.DataFrame:
     global sofr
-    global maturities
+    global display_terms
     global valuation_date
-    global terms
-    forwards =[float(sofr.rate(valuation_date, valuation_date+timedelta(days=1)))] + [(float(sofr.rate(maturities[i], maturities[i] - timedelta(days=1)))) for i in range(len(maturities))]
-    days = [0]+[(maturities[i] - valuation_date).days for i in maturities]
-    new_terms = ["ON"] + terms
+    terms = display_terms
+    maturities = [add_tenor(valuation_date, terms[i], "F", "nyc") for i in range(len(terms))]
+    # forwards =[float(sofr.rate(valuation_date, valuation_date+timedelta(days=1)))] + [(float(sofr.rate(maturities[i], maturities[i] - timedelta(days=1)))) for i in range(len(maturities))]
+    forwards =[(float(sofr.rate(maturities[i] - timedelta(days=1), maturities[i]))) for i in range(len(maturities))]
+    days =[(maturities[i] - valuation_date).days for i in range(len(maturities))]
+    # days = [0]+[(maturities[i] - valuation_date).days for i in range(len(maturities))]
+    # new_terms = ["ON"] + terms
+    new_terms = terms
     return pd.DataFrame(
         columns=["forward_rate","days", "term"],
-        data=[(forwards[i], days[i], new_terms[i]) for i in range(len(new_terms))],
+        data=[(forwards[i], days[i], display_terms[i]) for i in range(len(new_terms))],
     ).set_index("term")
