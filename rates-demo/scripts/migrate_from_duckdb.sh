@@ -52,18 +52,22 @@ if [ -z "${DATABASE_URL:-}" ]; then
   exit 1
 fi
 
-echo "==> Exporting CSVs from DuckDB: $DUCKDB_FILE"
-duckdb "$DUCKDB_FILE" <<'SQL'
+if [ "$DUCKDB_FILE" = "none" ] || [ "$DUCKDB_FILE" = "skip" ]; then
+  echo "==> Skipping DuckDB export (using existing CSVs in $OUT_DIR)"
+else
+  echo "==> Exporting CSVs from DuckDB: $DUCKDB_FILE"
+  duckdb "$DUCKDB_FILE" <<'SQL'
 COPY (SELECT * FROM main_tbl) TO 'main_tbl.csv' (HEADER, DELIMITER ',');
 COPY (SELECT * FROM risk_tbl) TO 'risk_tbl.csv' (HEADER, DELIMITER ',');
 COPY (SELECT * FROM main_agg) TO 'main_agg.csv' (HEADER, DELIMITER ',');
 COPY (SELECT * FROM risk_agg) TO 'risk_agg.csv' (HEADER, DELIMITER ',');
 SQL
 
-mv -f main_tbl.csv "$OUT_DIR/"
-mv -f risk_tbl.csv "$OUT_DIR/"
-mv -f main_agg.csv "$OUT_DIR/"
-mv -f risk_agg.csv "$OUT_DIR/"
+  mv -f main_tbl.csv "$OUT_DIR/" || true
+  mv -f risk_tbl.csv "$OUT_DIR/" || true
+  mv -f main_agg.csv "$OUT_DIR/" || true
+  mv -f risk_agg.csv "$OUT_DIR/" || true
+fi
 
 echo "==> Creating tables in Postgres via Prisma (db push)"
 (cd "$ROOT_DIR" && npx prisma generate && npx prisma db push)

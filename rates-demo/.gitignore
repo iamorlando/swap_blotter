@@ -15,3 +15,5 @@ out
 dev.db
 dev.db-journal
 
+.vercel
+.env*.local
