@@ -7,9 +7,119 @@ generator client {
   provider = "prisma-client-js"
 }
 
-model Swap {
-  id       Int     @id @default(autoincrement())
-  name     String
-  maturity String
-  pv       Float
+// Mirrors DuckDB main_tbl
+model MainTbl {
+  ID               String   @id
+  RowType          String?
+  CounterpartyID   String?
+  StartDate        DateTime?
+  TerminationDate  DateTime?
+  FixedRate        Float?
+  NPV              Float?
+  ParRate          Float?
+  Spread           Float?
+  SwapType         String?
+  PayFixed         Boolean?
+
+  @@map("main_tbl")
+}
+
+// Mirrors DuckDB risk_tbl
+model RiskTbl {
+  ID    String @id
+  // Buckets mapped from columns that start with digits
+  c_1W  Float? @map("1W")
+  c_2W  Float? @map("2W")
+  c_3W  Float? @map("3W")
+  c_1M  Float? @map("1M")
+  c_2M  Float? @map("2M")
+  c_3M  Float? @map("3M")
+  c_4M  Float? @map("4M")
+  c_5M  Float? @map("5M")
+  c_6M  Float? @map("6M")
+  c_7M  Float? @map("7M")
+  c_8M  Float? @map("8M")
+  c_9M  Float? @map("9M")
+  c_10M Float? @map("10M")
+  c_11M Float? @map("11M")
+  c_12M Float? @map("12M")
+  c_18M Float? @map("18M")
+  c_2Y  Float? @map("2Y")
+  c_3Y  Float? @map("3Y")
+  c_4Y  Float? @map("4Y")
+  c_5Y  Float? @map("5Y")
+  c_6Y  Float? @map("6Y")
+  c_7Y  Float? @map("7Y")
+  c_8Y  Float? @map("8Y")
+  c_9Y  Float? @map("9Y")
+  c_10Y Float? @map("10Y")
+  c_12Y Float? @map("12Y")
+  c_15Y Float? @map("15Y")
+  c_20Y Float? @map("20Y")
+  c_25Y Float? @map("25Y")
+  c_30Y Float? @map("30Y")
+  c_40Y Float? @map("40Y")
+
+  N     Float?
+  R     Float?
+  z     Float?
+  RowType String?
+
+  @@map("risk_tbl")
+}
+
+// Mirrors DuckDB main_agg
+model MainAgg {
+  RowType String
+  ID      String
+  NPV     Float?
+
+  @@id([RowType, ID])
+  @@map("main_agg")
+}
+
+// Mirrors DuckDB risk_agg
+model RiskAgg {
+  RowType String
+  ID      String
+
+  // Buckets mapped from columns that start with digits
+  c_1W  Float? @map("1W")
+  c_2W  Float? @map("2W")
+  c_3W  Float? @map("3W")
+  c_1M  Float? @map("1M")
+  c_2M  Float? @map("2M")
+  c_3M  Float? @map("3M")
+  c_4M  Float? @map("4M")
+  c_5M  Float? @map("5M")
+  c_6M  Float? @map("6M")
+  c_7M  Float? @map("7M")
+  c_8M  Float? @map("8M")
+  c_9M  Float? @map("9M")
+  c_10M Float? @map("10M")
+  c_11M Float? @map("11M")
+  c_12M Float? @map("12M")
+  c_18M Float? @map("18M")
+  c_2Y  Float? @map("2Y")
+  c_3Y  Float? @map("3Y")
+  c_4Y  Float? @map("4Y")
+  c_5Y  Float? @map("5Y")
+  c_6Y  Float? @map("6Y")
+  c_7Y  Float? @map("7Y")
+  c_8Y  Float? @map("8Y")
+  c_9Y  Float? @map("9Y")
+  c_10Y Float? @map("10Y")
+  c_12Y Float? @map("12Y")
+  c_15Y Float? @map("15Y")
+  c_20Y Float? @map("20Y")
+  c_25Y Float? @map("25Y")
+  c_30Y Float? @map("30Y")
+  c_40Y Float? @map("40Y")
+
+  N     Float?
+  R     Float?
+  z     Float?
+
+  @@id([RowType, ID])
+  @@map("risk_agg")
 }

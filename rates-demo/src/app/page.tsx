@@ -3,25 +3,62 @@
 import * as React from "react";
 import Link from "next/link";
 import { DataGrid, GridColDef, GridPaginationModel, GridSortModel } from "@mui/x-data-grid";
+import { columnsMeta as generatedColumns, idField as generatedIdField } from "@/generated/blotterColumns";
 
-type Row = { id: number; name: string; maturity: string; pv: number };
+type ApiColumn = { field: string; type?: string };
+type Row = Record<string, any> & { id: string | number };
 
 export default function HomePage() {
   const [rows, setRows] = React.useState<Row[]>([]);
   const [rowCount, setRowCount] = React.useState(0);
+  const initialColumns: GridColDef<Row>[] = React.useMemo(() => {
+    const apiCols: ApiColumn[] = generatedColumns || [];
+    const gridCols: GridColDef<Row>[] = (apiCols.length ? apiCols : [{ field: generatedIdField || "ID" }]).map((c) => {
+      const base: GridColDef<Row> = {
+        field: c.field,
+        headerName: c.field,
+        flex: 1,
+      };
+      const t = (c.type || "").toLowerCase();
+      if (t.includes("int") || t.includes("decimal") || t.includes("double") || t.includes("float") || t.includes("real")) {
+        base.type = "number";
+        base.flex = undefined;
+        base.width = 140;
+      } else if (t.includes("date") || t.includes("timestamp")) {
+        base.width = 180;
+      } else {
+        base.width = 200;
+      }
+      return base;
+    });
+    const idName = (generatedIdField || "ID").toLowerCase();
+    const idx = gridCols.findIndex((c) => c.field.toLowerCase() === idName);
+    if (idx >= 0) {
+      gridCols[idx] = {
+        ...gridCols[idx],
+        headerName: generatedIdField || gridCols[idx].headerName,
+        renderCell: (params) => <Link href={`/swap/${params.value}`}>{String(params.value)}</Link>,
+        width: 180,
+      } as GridColDef<Row>;
+    }
+    return gridCols;
+  }, []);
+  const [columns, setColumns] = React.useState<GridColDef<Row>[]>(initialColumns);
   const [paginationModel, setPaginationModel] = React.useState<GridPaginationModel>({ page: 0, pageSize: 20 });
-  const [sortModel, setSortModel] = React.useState<GridSortModel>([{ field: "id", sort: "asc" }]);
+  const [sortModel, setSortModel] = React.useState<GridSortModel>([
+    { field: (generatedIdField as string) || "ID", sort: "asc" },
+  ]);
   const [loading, setLoading] = React.useState(false);
 
   const fetchData = React.useCallback(async () => {
     setLoading(true);
-    const sortField = sortModel[0]?.field ?? "id";
+    const sortField = sortModel[0]?.field ?? generatedIdField ?? "id";
     const sortOrder = (sortModel[0]?.sort ?? "asc") as "asc" | "desc";
     const url = `/api/swaps?page=${paginationModel.page}&pageSize=${paginationModel.pageSize}&sortField=${sortField}&sortOrder=${sortOrder}`;
     const res = await fetch(url);
     const data = await res.json();
-    setRows(data.rows);
-    setRowCount(data.total);
+    setRows(data.rows || []);
+    setRowCount(data.total || 0);
     setLoading(false);
   }, [paginationModel.page, paginationModel.pageSize, sortModel]);
 
@@ -29,12 +66,13 @@ export default function HomePage() {
     fetchData();
   }, [fetchData]);
 
-  const columns: GridColDef<Row>[] = [
-    { field: "id", headerName: "ID", width: 90 },
-    { field: "name", headerName: "Name", flex: 1 },
-    { field: "maturity", headerName: "Maturity", width: 160 },
-    { field: "pv", headerName: "PV", width: 120, type: "number" },
-  ];
+  // Ensure sort model points to an existing column
+  React.useEffect(() => {
+    const currentSortField = sortModel[0]?.field;
+    if (!currentSortField || !columns.some((c) => c.field === currentSortField)) {
+      setSortModel([{ field: columns[0]?.field ?? (generatedIdField as string) ?? "ID", sort: "asc" }]);
+    }
+  }, [columns]);
 
   return (
     <div className="p-6 space-y-4">
@@ -46,7 +84,7 @@ export default function HomePage() {
         </Link>
       </nav>
 
-      <div className="h-[600px]">
+      <div className="h-[600px] border border-gray-700 rounded-md">
         <DataGrid
           rows={rows}
           rowCount={rowCount}
@@ -59,9 +97,10 @@ export default function HomePage() {
           sortModel={sortModel}
           onSortModelChange={setSortModel}
           pageSizeOptions={[10, 20, 50]}
+          getRowId={(row) => row.id}
+          sx={{ color: '#e5e7eb' }}
         />
       </div>
     </div>
   );
 }
-

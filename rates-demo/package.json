@@ -11,7 +11,8 @@
     "prisma:generate": "prisma generate",
     "db:push": "prisma db push",
     "seed": "tsx prisma/seed.ts",
-    "postinstall": "prisma generate"
+    "postinstall": "prisma generate",
+    "migrate:duckdb": "bash scripts/migrate_from_duckdb.sh ../swaps.duckdb \"$DATABASE_URL\""
   },
   "dependencies": {
     "@emotion/react": "^11.13.3",
