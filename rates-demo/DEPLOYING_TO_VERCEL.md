@@ -31,3 +31,7 @@ Prereqs
 Notes
 - SQLite is not supported on Vercel for production; this project is configured for Postgres.
 - If Pyodide CDN access must be overridden, set `PYODIDE_BASE`/`PYODIDE_URL` env vars.
+- For multi-million row imports from DuckDB, prefer streaming:
+  - Use a DIRECT Postgres URL (Neon direct) for bulk load: set `DIRECT_DATABASE_URL` locally.
+  - Run: `npm run migrate:duckdb:stream` (uses DuckDB's Postgres extension; no CSVs).
+  - After load, keep app `DATABASE_URL` pointed at the pooled URL (PgBouncer) for runtime.

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { PrismaClient } from "@prisma/client";
+import prisma from "@/lib/prisma";
 import { idField as generatedIdField, columnsMeta as generatedColumns, tableName as generatedTable } from "@/generated/blotterColumns";
-const prisma = new PrismaClient();
+
 
 export async function GET(req: NextRequest) {
   try {

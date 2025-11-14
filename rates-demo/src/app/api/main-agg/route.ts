@@ -1,7 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { PrismaClient } from "@prisma/client";
-
-const prisma = new PrismaClient();
+import prisma from "@/lib/prisma";
 
 function modelPropFor(table: string) {
   return table.split("_").map((p, i) => (i === 0 ? p.toLowerCase() : p.charAt(0).toUpperCase() + p.slice(1).toLowerCase())).join("");
@@ -20,4 +18,3 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: e?.message ?? String(e) }, { status: 500 });
   }
 }
-
