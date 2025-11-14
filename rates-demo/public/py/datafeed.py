@@ -13,7 +13,7 @@ _source = DataFrame({
              5.471,5.470,5.467,5.457,5.445,5.208,4.990,4.650,4.458,4.352,
              4.291,4.250,4.224,4.210,4.201,4.198,4.199,4.153,4.047,3.941,
              3.719],
-}).set_index("Term")
+}).set_index("Term").apply(lambda x: x/100.0)  # convert to decimal
 
 # ---- Helpers to order tenors and work with neighbors ----
 def _to_years(term: str) -> float:
@@ -61,7 +61,7 @@ def _neighbor_bounds(i: int, margin_bps: float) -> tuple[float, float]:
     Ensures the moved point stays between adjacent points (± small margin).
     margin_bps is in basis points of rate units (e.g., 3 -> 0.03 in your scale).
     """
-    margin = margin_bps / 100.0  # your rates are in % points (e.g., 5.309)
+    margin = margin_bps / 1  # your rates are in % points (e.g., 5.309)
     rates = _mut["Rate"].to_numpy()
     n = len(rates)
 

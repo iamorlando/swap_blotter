@@ -12,6 +12,7 @@ export const columnsMeta: ColumnMeta[] = [
   { field: "NPV", type: "DOUBLE" },
   { field: "ParRate", type: "DOUBLE" },
   { field: "Spread", type: "DOUBLE" },
+  { field: "Notional", type: "BIGINT" },
   { field: "SwapType", type: "VARCHAR" },
   { field: "PayFixed", type: "BOOLEAN" },
 ];

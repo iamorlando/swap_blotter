@@ -1,13 +1,17 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
-import { DataGrid, GridColDef } from "@mui/x-data-grid";
+import { DataGrid, GridColDef, GridPaginationModel, GridSortModel } from "@mui/x-data-grid";
 import { Slider } from "@mui/material";
 import VerticalSplit from "@/components/VerticalSplit";
 import HorizontalSplit from "@/components/HorizontalSplit";
+import { columnsMeta as generatedColumns, idField as generatedIdField } from "@/generated/blotterColumns";
 
 type Row = { id: number; Term: string; Rate: number };
+type ApiColumn = { field: string; type?: string };
+type BlotterRow = Record<string, any> & { id: string | number };
 
 export default function DatafeedPage() {
   const workerRef = React.useRef<Worker | null>(null);
@@ -155,9 +159,47 @@ export default function DatafeedPage() {
 
   const LeftPanel = (
     <div className="p-6 space-y-4">
-      <h1 className="text-xl font-semibold">this is a datafeed</h1>
+      {/* Title + run toggle */}
+      <div className="flex items-center justify-between">
+        <h1 className="text-xl font-semibold">Datafeed</h1>
+        <div className="flex items-center gap-2 text-sm select-none">
+          <span className={auto ? "text-gray-600" : "text-gray-200"}>paused</span>
+          <div
+            className={`w-10 h-6 rounded-full p-1 transition-colors cursor-pointer ${auto ? "bg-green-500" : "bg-gray-600"}`}
+            onClick={toggleAuto}
+            role="switch"
+            aria-checked={auto}
+          >
+            <div className={`h-4 w-4 bg-white rounded-full transition-transform ${auto ? "translate-x-4" : "translate-x-0"}`} />
+          </div>
+          <span className={auto ? "text-gray-200" : "text-gray-600"}>running</span>
+        </div>
+      </div>
+
+      {/* Settings box */}
       <div className="w-full rounded-lg border border-gray-800 bg-gray-900 p-3">
-        {Controls}
+        <div className="flex items-center justify-between gap-6">
+          <div className="text-sm text-gray-300 whitespace-nowrap">Refresh frequency</div>
+          <div className="w-56">
+            <Slider
+              value={fps}
+              min={1}
+              max={10}
+              step={1}
+              marks={Array.from({ length: 10 }, (_, i) => {
+                const v = i + 1; return { value: v, label: v === 1 ? '1x' : `${v}x` };
+              })}
+              onChange={onFpsChange}
+              valueLabelDisplay="auto"
+              valueLabelFormat={(v) => v === 1 ? '1x' : `${v}x`}
+              sx={{ mt: 0 }}
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Market chart */}
+      <div className="w-full rounded-lg border border-gray-800 bg-gray-900 p-3">
         <div className="h-60 w-full">
           <ResponsiveContainer width="100%" height="100%">
             <AreaChart data={data} margin={{ top: 10, right: 16, bottom: 0, left: 0 }}>
@@ -176,22 +218,23 @@ export default function DatafeedPage() {
           </ResponsiveContainer>
         </div>
       </div>
+
+      {/* Rates table (compact) */}
       <div className="rounded-lg border border-gray-800 bg-gray-900 p-3">
-        <div className="h-[460px]">
+        <div className="text-sm text-gray-300 mb-1">Rates</div>
+        <div className="h-48">
           <DataGrid
             rows={rows}
             columns={columns}
             disableColumnMenu
-            hideFooterSelectedRowCount
-            initialState={{ pagination: { paginationModel: { pageSize: 20, page: 0 } } }}
-            pageSizeOptions={[10, 20, 50]}
+            hideFooter
+            density="compact"
             sx={{
               color: "#e5e7eb",
               border: 0,
               "& .MuiDataGrid-columnHeaders": { backgroundColor: "#0b1220" },
               "& .MuiDataGrid-row": { backgroundColor: "#111827" },
               "& .MuiDataGrid-cell": { borderColor: "#1f2937" },
-              "& .MuiDataGrid-footerContainer": { backgroundColor: "#0b1220" },
             }}
           />
         </div>
@@ -208,6 +251,7 @@ export default function DatafeedPage() {
   const [forwardDaily, setForwardDaily] = React.useState<Array<{ day: number; rate: number }>>([]);
   const [calibErr, setCalibErr] = React.useState<string | null>(null);
   const [calibrating, setCalibrating] = React.useState(false);
+  const [autoCalibrated, setAutoCalibrated] = React.useState(false);
 
   React.useEffect(() => {
     const w = new Worker(new URL("../../workers/calibration.worker.ts", import.meta.url));
@@ -251,6 +295,15 @@ export default function DatafeedPage() {
     calibRef.current?.postMessage({ type: "recalibrate", market: data });
   };
 
+  // Auto-trigger a recalibration once, when calibration worker is ready and we have market data
+  React.useEffect(() => {
+    if (calibReady && !autoCalibrated && data && data.length > 0) {
+      setAutoCalibrated(true);
+      setCalibrating(true);
+      calibRef.current?.postMessage({ type: "recalibrate", market: data });
+    }
+  }, [calibReady, autoCalibrated, data]);
+
   const RightPanel = (
     <div className="p-6 space-y-4 min-w-[320px]">
       <div className="flex items-center justify-between">
@@ -260,47 +313,50 @@ export default function DatafeedPage() {
         </button>
       </div>
 
-      <div className="w-full rounded-lg border border-gray-800 bg-gray-900 p-3">
-        <div className="text-sm text-gray-300 mb-1">Discount Curve</div>
-        <div className="h-40 w-full">
-          <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={discount} margin={{ top: 6, right: 8, bottom: 0, left: 0 }}>
-              <defs>
-                <linearGradient id="dfFill" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#a78bfa" stopOpacity={0.35} />
-                  <stop offset="100%" stopColor="#a78bfa" stopOpacity={0.05} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
-              <XAxis dataKey="term" tick={{ fill: "#9ca3af", fontSize: 10 }} interval={0} axisLine={{ stroke: "#374151" }} tickLine={{ stroke: "#374151" }} />
-              <YAxis tick={{ fill: "#9ca3af", fontSize: 10 }} axisLine={{ stroke: "#374151" }} tickLine={{ stroke: "#374151" }} />
-              <Area type="monotone" dataKey="df" stroke="#a78bfa" strokeWidth={1.5} fill="url(#dfFill)" />
-            </AreaChart>
-          </ResponsiveContainer>
+      {/* Top row: two half-width charts */}
+      <div className="grid grid-cols-2 gap-4">
+        <div className="rounded-lg border border-gray-800 bg-gray-900 p-3">
+          <div className="text-sm text-gray-300 mb-1">Discount Curve</div>
+          <div className="h-40 w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={discount} margin={{ top: 6, right: 8, bottom: 0, left: 0 }}>
+                <defs>
+                  <linearGradient id="dfFill" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#a78bfa" stopOpacity={0.35} />
+                    <stop offset="100%" stopColor="#a78bfa" stopOpacity={0.05} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
+                <XAxis dataKey="term" tick={{ fill: "#9ca3af", fontSize: 10 }} interval={0} axisLine={{ stroke: "#374151" }} tickLine={{ stroke: "#374151" }} />
+                <YAxis tick={{ fill: "#9ca3af", fontSize: 10 }} axisLine={{ stroke: "#374151" }} tickLine={{ stroke: "#374151" }} />
+                <Area type="monotone" dataKey="df" stroke="#a78bfa" strokeWidth={1.5} fill="url(#dfFill)" />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+        <div className="rounded-lg border border-gray-800 bg-gray-900 p-3">
+          <div className="text-sm text-gray-300 mb-1">Zero Curve</div>
+          <div className="h-40 w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={zero} margin={{ top: 6, right: 8, bottom: 0, left: 0 }}>
+                <defs>
+                  <linearGradient id="zrFill" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#34d399" stopOpacity={0.35} />
+                    <stop offset="100%" stopColor="#34d399" stopOpacity={0.05} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
+                <XAxis dataKey="term" tick={{ fill: "#9ca3af", fontSize: 10 }} interval={0} axisLine={{ stroke: "#374151" }} tickLine={{ stroke: "#374151" }} />
+                <YAxis tick={{ fill: "#9ca3af", fontSize: 10 }} axisLine={{ stroke: "#374151" }} tickLine={{ stroke: "#374151" }} />
+                <Area type="monotone" dataKey="zero_rate" stroke="#34d399" strokeWidth={1.5} fill="url(#zrFill)" />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
         </div>
       </div>
 
-      <div className="w-full rounded-lg border border-gray-800 bg-gray-900 p-3">
-        <div className="text-sm text-gray-300 mb-1">Zero Curve</div>
-        <div className="h-40 w-full">
-          <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={zero} margin={{ top: 6, right: 8, bottom: 0, left: 0 }}>
-              <defs>
-                <linearGradient id="zrFill" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#34d399" stopOpacity={0.35} />
-                  <stop offset="100%" stopColor="#34d399" stopOpacity={0.05} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
-              <XAxis dataKey="term" tick={{ fill: "#9ca3af", fontSize: 10 }} interval={0} axisLine={{ stroke: "#374151" }} tickLine={{ stroke: "#374151" }} />
-              <YAxis tick={{ fill: "#9ca3af", fontSize: 10 }} axisLine={{ stroke: "#374151" }} tickLine={{ stroke: "#374151" }} />
-              <Area type="monotone" dataKey="zero_rate" stroke="#34d399" strokeWidth={1.5} fill="url(#zrFill)" />
-            </AreaChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
-
-      <div className="w-full rounded-lg border border-gray-800 bg-gray-900 p-3">
+      {/* Bottom row: full width forward curve */}
+      <div className="rounded-lg border border-gray-800 bg-gray-900 p-3">
         <div className="text-sm text-gray-300 mb-1">Forward Curve</div>
         <div className="h-40 w-full">
           <ResponsiveContainer width="100%" height="100%">
@@ -312,7 +368,7 @@ export default function DatafeedPage() {
                 </linearGradient>
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
-            <XAxis dataKey="term" tick={{ fill: "#9ca3af", fontSize: 10 }} interval={0} axisLine={{ stroke: "#374151" }} tickLine={{ stroke: "#374151" }} />
+              <XAxis dataKey="term" tick={{ fill: "#9ca3af", fontSize: 10 }} interval={0} axisLine={{ stroke: "#374151" }} tickLine={{ stroke: "#374151" }} />
               <YAxis tick={{ fill: "#9ca3af", fontSize: 10 }} axisLine={{ stroke: "#374151" }} tickLine={{ stroke: "#374151" }} />
               <Area type="stepAfter" dataKey="forward_rate" stroke="#f59e0b" strokeWidth={1.5} fill="url(#fwFill)" />
             </AreaChart>
@@ -323,20 +379,204 @@ export default function DatafeedPage() {
   );
 
   const Top = (
-    <HorizontalSplit left={LeftPanel} right={RightPanel} initialLeftPct={0.62} />
+    <HorizontalSplit left={LeftPanel} right={RightPanel} initialLeftPct={0.33} />
   );
 
   const Bottom = (
-    <div className="p-4">
-      <div className="max-w-3xl text-sm text-gray-300">
-        This area is for explanatory text. It is visually separated to emphasize the upper app as a standalone module. Use the handle to resize vertically.
-      </div>
+    <div className="p-4 space-y-2">
+      <div className="text-sm text-gray-300">Blotter</div>
+      <BlotterGrid />
     </div>
   );
 
   return (
     <div className="min-h-screen bg-gray-950 text-gray-100">
       <VerticalSplit top={Top} bottom={Bottom} initialTopHeight={520} />
+    </div>
+  );
+}
+
+function BlotterGrid() {
+  const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 });
+  const fmtDate = React.useCallback((v: any) => {
+    if (!v) return "";
+    const d = typeof v === "string" || typeof v === "number" ? new Date(v) : (v as Date);
+    if (isNaN(d.getTime())) return String(v);
+    const y = d.getUTCFullYear();
+    const m = String(d.getUTCMonth() + 1).padStart(2, "0");
+    const day = String(d.getUTCDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  }, []);
+
+  const apiCols: ApiColumn[] = generatedColumns || [];
+  const initialColumns: GridColDef<BlotterRow>[] = React.useMemo(() => {
+    const cols: GridColDef<BlotterRow>[] = (apiCols.length ? apiCols : [{ field: generatedIdField || "ID" }])
+      .filter((c) => c.field !== "RowType")
+      .map((c) => {
+        const base: GridColDef<BlotterRow> = {
+          field: c.field,
+          headerName: c.field === "Spread" ? "ParSpread" : c.field,
+          flex: 1,
+        };
+        const t = (c.type || "").toLowerCase();
+        if (t.includes("int") || t.includes("decimal") || t.includes("double") || t.includes("float") || t.includes("real") || t.includes("bigint")) {
+          base.type = "number";
+          base.flex = undefined;
+          base.width = 140;
+        } else if (t.includes("date") || t.includes("timestamp")) {
+          base.width = 140;
+          base.valueFormatter = (params: any) => fmtDate(params.value);
+          base.renderCell = (params: any) => <span>{fmtDate(params.value)}</span>;
+        } else {
+          base.width = 200;
+        }
+        if (c.field === "FixedRate" || c.field === "ParRate") {
+          base.valueFormatter = (p: any) => (p.value == null ? "" : `${p.value}%`);
+          base.renderCell = (p: any) => <span>{p.value == null ? "" : `${p.value}%`}</span>;
+          base.align = "right";
+        }
+        if (c.field === "NPV") {
+          base.valueFormatter = (p: any) => (p.value == null ? "" : `USD ${usd.format(Number(p.value)).replace("$", "$ ")}`);
+          base.renderCell = (p: any) => <span>{p.value == null ? "" : `USD ${usd.format(Number(p.value)).replace("$", "$ ")}`}</span>;
+          base.align = "right";
+          base.width = 180;
+        }
+        if (c.field === "Spread") {
+          base.valueFormatter = (p: any) => (p.value == null ? "" : `${p.value} bps`);
+          base.renderCell = (p: any) => <span>{p.value == null ? "" : `${p.value} bps`}</span>;
+          base.align = "right";
+        }
+        return base;
+      });
+    // ID column as link
+    const idName = (generatedIdField || "ID").toLowerCase();
+    const idx = cols.findIndex((c) => c.field.toLowerCase() === idName);
+    if (idx >= 0) {
+      cols[idx] = {
+        ...cols[idx],
+        headerName: generatedIdField || cols[idx].headerName,
+        renderCell: (params) => (
+          <Link href={`/swap/${params.value}`} className="text-blue-400 underline hover:text-blue-300">
+            {String(params.value)}
+          </Link>
+        ),
+        width: 180,
+      } as GridColDef<BlotterRow>;
+    }
+    // Ensure Notional present and formatted
+    const nIdx = cols.findIndex((c) => c.field === "Notional");
+    const notionalCol: GridColDef<BlotterRow> = {
+      field: "Notional",
+      headerName: "Notional",
+      width: 180,
+      sortable: false,
+      valueFormatter: (p: any) => (p.value == null ? "" : `USD ${usd.format(Math.abs(Number(p.value))).replace("$", "$ ")}`),
+      renderCell: (p: any) => <span>{p.value == null ? "" : `USD ${usd.format(Math.abs(Number(p.value))).replace("$", "$ ")}`}</span>,
+      align: "right",
+    };
+    if (nIdx >= 0) cols[nIdx] = { ...cols[nIdx], ...notionalCol };
+    else cols.push(notionalCol);
+    return cols;
+  }, [apiCols, fmtDate]);
+
+  const [columns, setColumns] = React.useState<GridColDef<BlotterRow>[]>(initialColumns);
+  const [rows, setRows] = React.useState<BlotterRow[]>([]);
+  const [rowCount, setRowCount] = React.useState(0);
+  const [paginationModel, setPaginationModel] = React.useState<GridPaginationModel>({ page: 0, pageSize: 20 });
+  const [sortModel, setSortModel] = React.useState<GridSortModel>([
+    { field: (generatedIdField as string) || "ID", sort: "asc" },
+  ]);
+  const [loading, setLoading] = React.useState(false);
+
+  const fetchData = React.useCallback(async () => {
+    setLoading(true);
+    const sortField = sortModel[0]?.field ?? generatedIdField ?? "id";
+    const sortOrder = (sortModel[0]?.sort ?? "asc") as "asc" | "desc";
+    const url = `/api/swaps?page=${paginationModel.page}&pageSize=${paginationModel.pageSize}&sortField=${sortField}&sortOrder=${sortOrder}`;
+    const res = await fetch(url);
+    const data = await res.json();
+    setRows(data.rows || []);
+    setRowCount(data.total || 0);
+    setLoading(false);
+  }, [paginationModel.page, paginationModel.pageSize, sortModel]);
+
+  React.useEffect(() => {
+    fetchData();
+  }, [fetchData]);
+
+  React.useEffect(() => {
+    const currentSortField = sortModel[0]?.field;
+    if (!currentSortField || !columns.some((c) => c.field === currentSortField)) {
+      setSortModel([{ field: columns[0]?.field ?? (generatedIdField as string) ?? "ID", sort: "asc" }]);
+    }
+  }, [columns]);
+
+  return (
+    <div className="h-[420px] border border-gray-800 rounded-md bg-gray-900 flex flex-col">
+      {/* Controls bar (top) */}
+      <div className="flex items-center justify-between gap-4 px-3 py-2 border-b border-gray-800 bg-gray-900">
+        <div className="text-sm text-gray-300">Blotter</div>
+        <div className="flex items-center gap-3 text-sm">
+          <label className="text-gray-400">Rows per page</label>
+          <select
+            className="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-gray-200"
+            value={paginationModel.pageSize}
+            onChange={(e) => setPaginationModel((m) => ({ ...m, pageSize: Number(e.target.value), page: 0 }))}
+          >
+            {[10, 20, 50, 100].map((n) => (
+              <option key={n} value={n}>{n}</option>
+            ))}
+          </select>
+          <div className="flex items-center gap-2">
+            <button
+              className="px-2 py-1 rounded bg-gray-800 border border-gray-700 text-gray-200 disabled:opacity-50"
+              disabled={paginationModel.page <= 0}
+              onClick={() => setPaginationModel((m) => ({ ...m, page: Math.max(0, m.page - 1) }))}
+            >
+              Prev
+            </button>
+            <button
+              className="px-2 py-1 rounded bg-gray-800 border border-gray-700 text-gray-200 disabled:opacity-50"
+              disabled={(paginationModel.page + 1) * paginationModel.pageSize >= rowCount}
+              onClick={() => setPaginationModel((m) => ({ ...m, page: m.page + 1 }))}
+            >
+              Next
+            </button>
+            <span className="text-gray-400">
+              {rowCount > 0
+                ? `${paginationModel.page * paginationModel.pageSize + 1}–${Math.min((paginationModel.page + 1) * paginationModel.pageSize, rowCount)} of ${rowCount}`
+                : '0 of 0'}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* Grid (scrolls) */}
+      <div className="flex-1 min-h-0">
+        <DataGrid
+          rows={rows}
+          rowCount={rowCount}
+          columns={columns}
+          loading={loading}
+          paginationMode="server"
+          sortingMode="server"
+          paginationModel={paginationModel}
+          onPaginationModelChange={setPaginationModel}
+          sortModel={sortModel}
+          onSortModelChange={setSortModel}
+          pageSizeOptions={[10, 20, 50, 100]}
+          getRowId={(row) => row.id}
+          disableColumnMenu
+          hideFooter
+          sx={{
+            color: '#e5e7eb',
+            border: 0,
+            '& .MuiDataGrid-columnHeaders': { backgroundColor: '#0b1220' },
+            '& .MuiDataGrid-row': { backgroundColor: '#111827' },
+            '& .MuiDataGrid-cell': { borderColor: '#1f2937' },
+          }}
+        />
+      </div>
     </div>
   );
 }

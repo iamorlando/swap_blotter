@@ -13,7 +13,8 @@ export async function GET(req: NextRequest) {
     if (!id || !rowType) return NextResponse.json({ error: "id and rowType are required" }, { status: 400 });
     const repo = (prisma as any)[modelPropFor("main_agg")] || (prisma as any).mainAgg;
     const row = await repo.findFirst({ where: { ID: isNaN(Number(id)) ? id : Number(id), RowType: rowType } });
-    return NextResponse.json({ row });
+    const safe = row ? { ...row, Notional: (row as any).Notional == null ? null : Number((row as any).Notional) } : null;
+    return NextResponse.json({ row: safe });
   } catch (e: any) {
     return NextResponse.json({ error: e?.message ?? String(e) }, { status: 500 });
   }

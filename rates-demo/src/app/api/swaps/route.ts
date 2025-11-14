@@ -28,7 +28,13 @@ export async function GET(req: NextRequest) {
 
     // Ensure DataGrid row id exists
     const idKey = (generatedIdField || "id") as keyof typeof rows[number];
-    const shaped = rows.map((r: any) => ({ ...r, id: (r as any)[idKey] ?? (r as any).id }));
+
+    const shaped = rows.map((r: any) => {
+      const idVal = (r as any)[idKey] ?? (r as any).id;
+      const notionalRaw = (r as any).Notional;
+      const Notional = notionalRaw == null ? null : Number(notionalRaw); // convert BigInt -> number for JSON
+      return { ...r, id: idVal, Notional };
+    });
 
     return NextResponse.json({ total, rows: shaped });
   } catch (e: any) {
