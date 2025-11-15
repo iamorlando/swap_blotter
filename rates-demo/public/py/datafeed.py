@@ -13,7 +13,7 @@ _source = DataFrame({
              5.471,5.470,5.467,5.457,5.445,5.208,4.990,4.650,4.458,4.352,
              4.291,4.250,4.224,4.210,4.201,4.198,4.199,4.153,4.047,3.941,
              3.719],
-}).set_index("Term").apply(lambda x: x/100.0)  # convert to decimal
+}).set_index("Term").apply(lambda x: x/100.0)  # stored internally as decimals (e.g., 0.05309)
 
 # ---- Helpers to order tenors and work with neighbors ----
 def _to_years(term: str) -> float:
@@ -55,13 +55,27 @@ def reset_datafeed():
 def get_random_term() -> str:
     return _rng.choice(_terms)
 
+def _is_decimal_scale() -> bool:
+    try:
+        v = float(_mut["Rate"].iloc[0])
+    except Exception:
+        return True
+    return abs(v) < 1.0
+
+def _bps_denom() -> float:
+    """Return the divisor to convert basis points into rate units.
+    - If rates are decimals (0.05), 1 bp = 0.0001 -> divide by 10000
+    - If rates are percentage points (5.0), 1 bp = 0.01   -> divide by 100
+    """
+    return 10000.0 if _is_decimal_scale() else 100.0
+
 def _neighbor_bounds(i: int, margin_bps: float) -> tuple[float, float]:
     """
     Compute lower/upper bounds for the ith tenor based on its neighbors.
     Ensures the moved point stays between adjacent points (± small margin).
     margin_bps is in basis points of rate units (e.g., 3 -> 0.03 in your scale).
     """
-    margin = margin_bps / 1  # your rates are in % points (e.g., 5.309)
+    margin = margin_bps / _bps_denom()
     rates = _mut["Rate"].to_numpy()
     n = len(rates)
 
@@ -118,7 +132,7 @@ def simulate_tick(
 
     # compose shock: rho * global + sqrt(1-rho^2) * local
     local = _rng.normal(0.0, 1.0)
-    sigma = sigma_bps / 100.0
+    sigma = sigma_bps / _bps_denom()
     shock = sigma * (rho * _global_factor + np.sqrt(max(0.0, 1.0 - rho**2)) * local)
 
     # apply to current rate
@@ -129,7 +143,8 @@ def simulate_tick(
     lo, hi = _neighbor_bounds(i, margin_bps=margin_bps)
     new_rate = float(np.clip(proposal, lo, hi))
 
-    _mut.iloc[i, 0] = round(new_rate, 3)
+    # keep precision to reflect bps-level moves when using decimals
+    _mut.iloc[i, 0] = round(new_rate, 6)
     return label, new_rate
 
 def get_updated_datafeed() -> DataFrame:

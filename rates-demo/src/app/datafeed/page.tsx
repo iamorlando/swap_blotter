@@ -2,18 +2,30 @@
 
 import * as React from "react";
 import Link from "next/link";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { DataGrid, GridColDef, GridPaginationModel, GridSortModel } from "@mui/x-data-grid";
 import { Slider } from "@mui/material";
 import VerticalSplit from "@/components/VerticalSplit";
 import HorizontalSplit from "@/components/HorizontalSplit";
 import { columnsMeta as generatedColumns, idField as generatedIdField } from "@/generated/blotterColumns";
+import Modal from "@/components/Modal";
 
 type Row = { id: number; Term: string; Rate: number };
 type ApiColumn = { field: string; type?: string };
 type BlotterRow = Record<string, any> & { id: string | number };
 
 export default function DatafeedPage() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const swapId = searchParams.get("swap");
+  const closeSwap = React.useCallback(() => {
+    const sp = new URLSearchParams(searchParams?.toString() || "");
+    sp.delete("swap");
+    const qs = sp.toString();
+    router.replace(qs ? `${pathname}?${qs}` : `${pathname}`, { scroll: false });
+  }, [router, pathname, searchParams]);
   const workerRef = React.useRef<Worker | null>(null);
   const [data, setData] = React.useState<Array<{ Term: string; Rate: number }>>([]);
   const [ready, setReady] = React.useState(false);
@@ -58,6 +70,7 @@ export default function DatafeedPage() {
     () => data.map((d, i) => ({ id: i, Term: d.Term, Rate: d.Rate })),
     [data]
   );
+  const dataPct = React.useMemo(() => data.map(d => ({ Term: d.Term, RatePct: (d.Rate == null ? null : Number(d.Rate) * 100) })), [data]);
 
   const columns: GridColDef<Row>[] = [
     { field: "Term", headerName: "Term", width: 120 },
@@ -72,6 +85,7 @@ export default function DatafeedPage() {
         const dir = moveDir;
         const arrow = dir === "up" ? "▲" : dir === "down" ? "▼" : "";
         const cls = isMoved ? (dir === "up" ? "flash-up" : dir === "down" ? "flash-down" : "") : "";
+        const val = typeof params.value === "number" ? (params.value as number) * 100 : params.value;
         return (
           <div className="flex items-center gap-1">
             {isMoved && arrow && (
@@ -80,7 +94,7 @@ export default function DatafeedPage() {
               </span>
             )}
             <span key={`${term}-${seq}`} className={`font-mono ${cls}`}>
-              {typeof params.value === "number" ? (params.value as number).toFixed(3) : params.value}
+              {typeof val === "number" ? val.toFixed(3) + "%" : val}
             </span>
           </div>
         );
@@ -202,7 +216,7 @@ export default function DatafeedPage() {
       <div className="w-full rounded-lg border border-gray-800 bg-gray-900 p-3">
         <div className="h-60 w-full">
           <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={data} margin={{ top: 10, right: 16, bottom: 0, left: 0 }}>
+            <AreaChart data={dataPct} margin={{ top: 10, right: 16, bottom: 0, left: 0 }}>
               <defs>
                 <linearGradient id="rateFill" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="0%" stopColor="#f59e0b" stopOpacity={0.45} />
@@ -213,7 +227,7 @@ export default function DatafeedPage() {
               <XAxis dataKey="Term" tick={<CustomXAxisTick />} axisLine={{ stroke: "#374151" }} tickLine={{ stroke: "#374151" }} />
               <YAxis tick={{ fill: "#9ca3af", fontSize: 12 }} axisLine={{ stroke: "#374151" }} tickLine={{ stroke: "#374151" }} domain={["dataMin - 0.2", "dataMax + 0.2"]} />
               <Tooltip contentStyle={{ background: "#111827", border: "1px solid #374151", color: "#e5e7eb" }} />
-              <Area type="monotone" dataKey="Rate" stroke="#f59e0b" strokeWidth={2} fill="url(#rateFill)" />
+              <Area type="monotone" dataKey="RatePct" stroke="#f59e0b" strokeWidth={2} fill="url(#rateFill)" />
             </AreaChart>
           </ResponsiveContainer>
         </div>
@@ -329,6 +343,7 @@ export default function DatafeedPage() {
                 <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
                 <XAxis dataKey="term" tick={{ fill: "#9ca3af", fontSize: 10 }} interval={0} axisLine={{ stroke: "#374151" }} tickLine={{ stroke: "#374151" }} />
                 <YAxis tick={{ fill: "#9ca3af", fontSize: 10 }} axisLine={{ stroke: "#374151" }} tickLine={{ stroke: "#374151" }} />
+                <Tooltip contentStyle={{ background: "#111827", border: "1px solid #374151", color: "#e5e7eb" }} cursor={{ stroke: "#374151" }} />
                 <Area type="monotone" dataKey="df" stroke="#a78bfa" strokeWidth={1.5} fill="url(#dfFill)" />
               </AreaChart>
             </ResponsiveContainer>
@@ -348,6 +363,7 @@ export default function DatafeedPage() {
                 <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
                 <XAxis dataKey="term" tick={{ fill: "#9ca3af", fontSize: 10 }} interval={0} axisLine={{ stroke: "#374151" }} tickLine={{ stroke: "#374151" }} />
                 <YAxis tick={{ fill: "#9ca3af", fontSize: 10 }} axisLine={{ stroke: "#374151" }} tickLine={{ stroke: "#374151" }} />
+                <Tooltip contentStyle={{ background: "#111827", border: "1px solid #374151", color: "#e5e7eb" }} cursor={{ stroke: "#374151" }} />
                 <Area type="monotone" dataKey="zero_rate" stroke="#34d399" strokeWidth={1.5} fill="url(#zrFill)" />
               </AreaChart>
             </ResponsiveContainer>
@@ -370,6 +386,7 @@ export default function DatafeedPage() {
               <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
               <XAxis dataKey="term" tick={{ fill: "#9ca3af", fontSize: 10 }} interval={0} axisLine={{ stroke: "#374151" }} tickLine={{ stroke: "#374151" }} />
               <YAxis tick={{ fill: "#9ca3af", fontSize: 10 }} axisLine={{ stroke: "#374151" }} tickLine={{ stroke: "#374151" }} />
+              <Tooltip contentStyle={{ background: "#111827", border: "1px solid #374151", color: "#e5e7eb" }} cursor={{ stroke: "#374151" }} />
               <Area type="stepAfter" dataKey="forward_rate" stroke="#f59e0b" strokeWidth={1.5} fill="url(#fwFill)" />
             </AreaChart>
           </ResponsiveContainer>
@@ -392,6 +409,19 @@ export default function DatafeedPage() {
   return (
     <div className="min-h-screen bg-gray-950 text-gray-100">
       <VerticalSplit top={Top} bottom={Bottom} initialTopHeight={520} />
+      {swapId && (
+        <Modal title={`Swap ${swapId}`}>
+          <div className="space-y-3 text-sm text-gray-200">
+            <div>
+              Swap ID: <span className="font-mono text-blue-300">{swapId}</span>
+            </div>
+            <div className="text-gray-400">Detail view coming next. This modal preserves the running datafeed and calibration workers.</div>
+            <div className="pt-2">
+              <button onClick={closeSwap} className="px-3 py-1.5 rounded-md border border-gray-700 bg-gray-800 text-gray-200 hover:bg-gray-700">Close</button>
+            </div>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }
@@ -431,8 +461,8 @@ function BlotterGrid() {
           base.width = 200;
         }
         if (c.field === "FixedRate" || c.field === "ParRate") {
-          base.valueFormatter = (p: any) => (p.value == null ? "" : `${p.value}%`);
-          base.renderCell = (p: any) => <span>{p.value == null ? "" : `${p.value}%`}</span>;
+          base.valueFormatter = (p: any) => (p.value == null ? "" : `${Number(p.value).toFixed(2)}%`);
+          base.renderCell = (p: any) => <span>{p.value == null ? "" : `${Number(p.value).toFixed(2)}%`}</span>;
           base.align = "right";
         }
         if (c.field === "NPV") {
@@ -442,8 +472,8 @@ function BlotterGrid() {
           base.width = 180;
         }
         if (c.field === "Spread") {
-          base.valueFormatter = (p: any) => (p.value == null ? "" : `${p.value} bps`);
-          base.renderCell = (p: any) => <span>{p.value == null ? "" : `${p.value} bps`}</span>;
+          base.valueFormatter = (p: any) => (p.value == null ? "" : `${Number(p.value).toFixed(2)} bp`);
+          base.renderCell = (p: any) => <span>{p.value == null ? "" : `${Number(p.value).toFixed(2)} bp`}</span>;
           base.align = "right";
         }
         return base;
@@ -455,11 +485,7 @@ function BlotterGrid() {
       cols[idx] = {
         ...cols[idx],
         headerName: generatedIdField || cols[idx].headerName,
-        renderCell: (params) => (
-          <Link href={`/swap/${params.value}`} className="text-blue-400 underline hover:text-blue-300">
-            {String(params.value)}
-          </Link>
-        ),
+        renderCell: (params) => <SwapLink id={params.value} />,
         width: 180,
       } as GridColDef<BlotterRow>;
     }
@@ -578,5 +604,26 @@ function BlotterGrid() {
         />
       </div>
     </div>
+  );
+}
+
+function SwapLink({ id }: { id: string | number }) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const onClick = (e: React.MouseEvent) => {
+    e.preventDefault();
+    // Prevent DataGrid from also handling this event
+    e.stopPropagation();
+    // @ts-ignore — hint MUI Grid that the event is handled
+    (e as any).defaultMuiPrevented = true;
+    const sp = new URLSearchParams(searchParams?.toString() || "");
+    sp.set("swap", String(id));
+    router.push(`${pathname}?${sp.toString()}`, { scroll: false });
+  };
+  return (
+    <a href={`/swap/${id}`} onClick={onClick} className="text-blue-400 underline hover:text-blue-300">
+      {String(id)}
+    </a>
   );
 }
