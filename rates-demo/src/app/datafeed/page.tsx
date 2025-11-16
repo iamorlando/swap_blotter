@@ -185,6 +185,10 @@ export default function DatafeedPage() {
     [data]
   );
   const dataPct = React.useMemo(() => data.map(d => ({ Term: d.Term, RatePct: (d.Rate == null ? null : Number(d.Rate) * 100) })), [data]);
+  const dragBaselinePct = React.useMemo(() => {
+    if (!dragState) return null;
+    return dragState.baseCurve.map((d) => ({ Term: d.Term, RatePct: (d.Rate == null ? null : Number(d.Rate) * 100) }));
+  }, [dragState]);
   const rateDomain = React.useMemo(() => {
     const vals = dataPct.map((d) => (d.RatePct == null ? null : Number(d.RatePct))).filter((v) => typeof v === "number") as number[];
     const minVal = vals.length ? Math.min(...vals) : 0;
@@ -472,6 +476,7 @@ export default function DatafeedPage() {
                 setHoveringCurve(true);
               }}
               style={{ cursor: dragState ? "grabbing" : "grab" }}
+              isAnimationActive={false}
             >
               <defs>
                 <linearGradient id="rateFill" x1="0" y1="0" x2="0" y2="1">
@@ -483,8 +488,20 @@ export default function DatafeedPage() {
               <XAxis dataKey="Term" tick={<CustomXAxisTick />} axisLine={{ stroke: "#374151" }} tickLine={{ stroke: "#374151" }} />
               <YAxis tick={{ fill: "#9ca3af", fontSize: 12 }} axisLine={{ stroke: "#374151" }} tickLine={{ stroke: "#374151" }} domain={[rateDomain.min, rateDomain.max]} />
               <Tooltip contentStyle={{ background: "#111827", border: "1px solid #374151", color: "#e5e7eb" }} />
-              <Area type="monotone" dataKey="RatePct" stroke="#f59e0b" strokeWidth={isCurveActive ? 3 : 2} fill="url(#rateFill)" fillOpacity={isCurveActive ? 0.35 : 0.25} />
-              <Scatter data={dataPct} fill="#f59e0b" shape={(p: any) => <PointHandle {...p} />} />
+              {dragBaselinePct && (
+                <Area
+                  type="monotone"
+                  dataKey="RatePct"
+                  data={dragBaselinePct}
+                  stroke="#6b7280"
+                  strokeWidth={2}
+                  strokeDasharray="6 5"
+                  fill="none"
+                  isAnimationActive={false}
+                />
+              )}
+              <Area type="monotone" dataKey="RatePct" stroke="#f59e0b" strokeWidth={isCurveActive ? 3 : 2} fill="url(#rateFill)" fillOpacity={isCurveActive ? 0.35 : 0.25} isAnimationActive={false} />
+              <Scatter data={dataPct} fill="#f59e0b" shape={(p: any) => <PointHandle {...p} />} isAnimationActive={false} />
             </AreaChart>
           </ResponsiveContainer>
         </div>
@@ -731,20 +748,51 @@ function BlotterGrid({ approxReady, approxOverrides, requestApproximation, clear
         } else {
           base.width = 200;
         }
-        if (c.field === "FixedRate" || c.field === "ParRate") {
-          base.valueFormatter = (p: any) => (p.value == null ? "" : `${Number(p.value).toFixed(2)}%`);
-          base.renderCell = (p: any) => <span>{p.value == null ? "" : `${Number(p.value).toFixed(2)}%`}</span>;
+        if (c.field === "ParRate") {
           base.align = "right";
+          base.width = 140;
+          base.renderCell = (p: any) => {
+            const baseVal = (p.row as any).__baseParRate;
+            const cur = p.value == null ? null : Number(p.value);
+            const delta = baseVal == null || cur == null ? 0 : cur - Number(baseVal);
+            const dir = delta > 1e-6 ? "up" : delta < -1e-6 ? "down" : "flat";
+            const arrow = dir === "up" ? "▲" : dir === "down" ? "▼" : "";
+            const color = dir === "up" ? "text-green-400" : dir === "down" ? "text-red-400" : "text-gray-200";
+            return (
+              <span className={`flex items-center justify-end gap-1 ${color}`}>
+                {arrow && <span>{arrow}</span>}
+                <span>{cur == null ? "" : `${cur.toFixed(2)}%`}</span>
+              </span>
+            );
+          };
         }
         if (c.field === "NPV") {
-          base.valueFormatter = (p: any) => (p.value == null ? "" : `USD ${usd.format(Number(p.value)).replace("$", "$ ")}`);
-          base.renderCell = (p: any) => <span>{p.value == null ? "" : `USD ${usd.format(Number(p.value)).replace("$", "$ ")}`}</span>;
           base.align = "right";
           base.width = 180;
+          base.renderCell = (p: any) => {
+            const baseVal = (p.row as any).__baseNPV;
+            const cur = p.value == null ? null : Number(p.value);
+            const delta = baseVal == null || cur == null ? 0 : cur - Number(baseVal);
+            const dir = delta > 1e-6 ? "up" : delta < -1e-6 ? "down" : "flat";
+            const arrow = dir === "up" ? "▲" : dir === "down" ? "▼" : "";
+            const color = dir === "up" ? "text-green-400" : dir === "down" ? "text-red-400" : "text-gray-200";
+            const formatted = cur == null ? "" : `USD ${usd.format(Number(Math.abs(cur))).replace("$", "$ ")}`;
+            return (
+              <span className={`flex items-center justify-end gap-1 ${color}`}>
+                {arrow && <span>{arrow}</span>}
+                <span>{formatted}</span>
+              </span>
+            );
+          };
         }
         if (c.field === "ParSpread") {
           base.valueFormatter = (p: any) => (p.value == null ? "" : `${Number(p.value).toFixed(2)} bp`);
           base.renderCell = (p: any) => <span>{p.value == null ? "" : `${Number(p.value).toFixed(2)} bp`}</span>;
+          base.align = "right";
+        }
+        if (c.field === "FixedRate") {
+          base.valueFormatter = (p: any) => (p.value == null ? "" : `${Number(p.value).toFixed(2)} %`);
+          base.renderCell = (p: any) => <span>{p.value == null ? "" : `${Number(p.value).toFixed(2)} %`}</span>;
           base.align = "right";
         }
         return base;
@@ -849,13 +897,18 @@ function BlotterGrid({ approxReady, approxOverrides, requestApproximation, clear
   }, [columns]);
 
   const displayRows = React.useMemo(() => {
-    if (!approxOverrides || !Object.keys(approxOverrides).length) return rows;
     return rows.map((row) => {
       const key = row.ID ?? row.id;
-      if (key == null) return row;
-      const override = approxOverrides[String(key)];
-      if (!override) return row;
-      return { ...row, ...override, id: row.id };
+      const override = key == null ? null : approxOverrides[String(key)];
+      const baseNPV = row.NPV == null ? null : Number(row.NPV);
+      const baseParRate = row.ParRate == null ? null : Number(row.ParRate);
+      return {
+        ...row,
+        __baseNPV: baseNPV,
+        __baseParRate: baseParRate,
+        ...(override || {}),
+        id: row.id,
+      };
     });
   }, [rows, approxOverrides]);
 
