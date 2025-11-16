@@ -27,6 +27,19 @@ export default function DatafeedPage() {
     router.replace(qs ? `${pathname}?${qs}` : `${pathname}`, { scroll: false });
   }, [router, pathname, searchParams]);
   const workerRef = React.useRef<Worker | null>(null);
+  const approxRef = React.useRef<Worker | null>(null);
+  const approxReadyRef = React.useRef(false);
+  const latestCurveRef = React.useRef<Array<{ Term: string; Rate: number }> | null>(null);
+  const pushApproxMarket = React.useCallback((rows: Array<{ Term: string; Rate: number }>) => {
+    if (rows && rows.length) {
+      latestCurveRef.current = rows;
+      if (approxReadyRef.current) {
+        approxRef.current?.postMessage({ type: "curve", market: rows });
+      }
+    } else {
+      latestCurveRef.current = null;
+    }
+  }, []);
   const [data, setData] = React.useState<Array<{ Term: string; Rate: number }>>([]);
   const [ready, setReady] = React.useState(false);
   const [auto, setAuto] = React.useState(true);
@@ -49,16 +62,22 @@ export default function DatafeedPage() {
         const intervalMs = 1000; // 1 second
         w.postMessage({ type: "startAuto", intervalMs });
       } else if (msg.type === "data") {
-        console.log("[datafeed worker] tick", msg.data?.length);
-        setData(msg.data as Array<{ Term: string; Rate: number }>);
+        const curveRows = msg.data as Array<{ Term: string; Rate: number }>;
+        console.log("[datafeed worker] tick", curveRows?.length);
+        setData(curveRows);
+        pushApproxMarket(curveRows);
         if (msg.movedTerm) {
           setMovedTerm(msg.movedTerm as string);
           setMoveDir((msg.dir as any) || "flat");
           setSeq((s) => s + 1);
         }
+      } else if (msg.type === "md") {
+        console.log("[datafeed worker] md", msg.rows);
       } else if (msg.type === "error") {
         setError(String(msg.error ?? "Unknown error"));
         console.error("[datafeed worker] error", msg.error);
+      } else if (msg.type === "log") {
+        console.log(`[datafeed worker] ${msg.message}`);
       }
     };
     w.postMessage({ type: "init", baseUrl: "https://cdn.jsdelivr.net/pyodide/v0.26.1/full/", pythonUrl: "/py/datafeed.py" });
@@ -66,6 +85,33 @@ export default function DatafeedPage() {
       if (auto) w.postMessage({ type: "stopAuto" });
       w.terminate();
       workerRef.current = null;
+    };
+  }, [pushApproxMarket]);
+
+  React.useEffect(() => {
+    const w = new Worker(new URL("../../workers/swapApprox.worker.ts", import.meta.url));
+    approxRef.current = w;
+    w.onmessage = (e: MessageEvent) => {
+      const msg = e.data || {};
+      if (msg.type === "ready") {
+        console.log("[approx worker] ready");
+        approxReadyRef.current = true;
+        if (latestCurveRef.current) {
+          w.postMessage({ type: "curve", market: latestCurveRef.current });
+        }
+      } else if (msg.type === "md") {
+        console.log("[approx worker] md", msg.rows);
+      } else if (msg.type === "error") {
+        console.error("[approx worker] error", msg.error);
+      } else if (msg.type === "log") {
+        console.log(`[approx worker] ${msg.message}`);
+      }
+    };
+    w.postMessage({ type: "init", baseUrl: "https://cdn.jsdelivr.net/pyodide/v0.26.1/full/", datafeedUrl: "/py/datafeed.py", approxUrl: "/py/swap_approximation.py" });
+    return () => {
+      approxReadyRef.current = false;
+      w.terminate();
+      approxRef.current = null;
     };
   }, []);
 

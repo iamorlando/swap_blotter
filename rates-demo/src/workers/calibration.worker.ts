@@ -17,12 +17,13 @@ async function init(baseUrl: string, datafeedUrl: string, calibUrl: string) {
       "import micropip; await micropip.install('rateslib')"
     );
     // Load python modules from public
-    const [dfRes, ccRes] = await Promise.all([
+    const [dfRes, ccRes, swapRes] = await Promise.all([
       fetch(datafeedUrl, { cache: "no-store" }),
       fetch(calibUrl, { cache: "no-store" }),
+      fetch("/py/swap_approximation.py", { cache: "no-store" }),
     ]);
-    if (!dfRes.ok || !ccRes.ok) throw new Error("Failed to fetch python modules");
-    const [dfCode, ccCode] = await Promise.all([dfRes.text(), ccRes.text()]);
+    if (!dfRes.ok || !ccRes.ok || !swapRes.ok) throw new Error("Failed to fetch python modules");
+    const [dfCode, ccCode, swapCode] = await Promise.all([dfRes.text(), ccRes.text(), swapRes.text()]);
 
     const valStr = process.env.NEXT_PUBLIC_VALUATION_DATE;
     const valLine = valStr
@@ -40,7 +41,11 @@ async function init(baseUrl: string, datafeedUrl: string, calibUrl: string) {
       + valLine
       + `exec(compile(r'''${escapeForPyExec(ccCode)}''', 'py/curve_calibration.py', 'exec'), m_curv.__dict__)\n`
       + `sys.modules['py.curve_calibration'] = m_curv\n`
-      + `from py.curve_calibration import calibrate_curve, get_discount_factor_curve, get_zero_rate_curve, get_forward_rate_curve\n`;
+      + `m_swap = types.ModuleType('py.swap_approximation'); m_swap.__package__='py'\n`
+      + `exec(compile(r'''${escapeForPyExec(swapCode)}''', 'py/swap_approximation.py', 'exec'), m_swap.__dict__)\n`
+      + `sys.modules['py.swap_approximation'] = m_swap\n`
+      + `from py.curve_calibration import calibrate_curve, get_discount_factor_curve, get_zero_rate_curve, get_forward_rate_curve\n`
+      + `from py.swap_approximation import get_data_and_return_it\n`;
 
     pyodide.runPython(bootstrap);
     initialized = true;
@@ -66,6 +71,7 @@ ctx.onmessage = async (ev: MessageEvent) => {
       const jsonStr = JSON.stringify(market);
       // Build DataFrame in Python
       pyodide.runPython(`import pandas as pd\nimport json\ndata = pd.DataFrame(json.loads(r'''${jsonStr}'''))`);
+      pyodide.runPython("get_data_and_return_it(data)");
       // Calibrate
       pyodide.runPython("calibrate_curve(data)");
       // Extract curves as JSON strings
