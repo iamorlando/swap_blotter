@@ -64,7 +64,7 @@ async function loadMainTbl(dir: string) {
     FixedRate: toFloat(r['FixedRate']) ?? undefined,
     NPV: toFloat(r['NPV']) ?? undefined,
     ParRate: toFloat(r['ParRate']) ?? undefined,
-    Spread: toFloat(r['Spread']) ?? undefined,
+    ParSpread: toFloat(r['ParSpread']) ?? undefined,
     SwapType: r['SwapType'] ?? undefined,
     PayFixed: toBool(r['PayFixed']) ?? undefined,
   }));
@@ -82,7 +82,6 @@ async function loadRiskTbl(dir: string) {
   const data = rows.map(r => {
     const o: any = { ID: r['ID']! };
     for (const b of bucketCols) o[`c_${b}`] = toFloat(r[b]) ?? undefined;
-    o['N'] = toFloat(r['N']) ?? undefined;
     o['R'] = toFloat(r['R']) ?? undefined;
     o['z'] = toFloat(r['z']) ?? undefined;
     o['RowType'] = r['RowType'] ?? undefined;
@@ -114,7 +113,6 @@ async function loadRiskAgg(dir: string) {
   const data = rows.map(r => {
     const o: any = { RowType: r['RowType']!, ID: r['ID']! };
     for (const b of bucketCols) o[`c_${b}`] = toFloat(r[b]) ?? undefined;
-    o['N'] = toFloat(r['N']) ?? undefined;
     o['R'] = toFloat(r['R']) ?? undefined;
     o['z'] = toFloat(r['z']) ?? undefined;
     return o;
@@ -133,4 +131,3 @@ async function main() {
 }
 
 main().finally(() => prisma.$disconnect());
-

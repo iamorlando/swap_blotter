@@ -70,14 +70,14 @@ SQL
 fi
 
 echo "==> Creating tables in Postgres via Prisma (db push)"
-(cd "$ROOT_DIR" && npx prisma generate && npx prisma db push)
+(cd "$ROOT_DIR" && npx prisma generate && npx prisma db push --accept-data-loss)
 
 if [ "$USE_PSQL" -eq 1 ]; then
   echo "==> Loading CSVs into Postgres using psql COPY"
-  psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "COPY \"main_tbl\" (\"RowType\",\"ID\",\"CounterpartyID\",\"StartDate\",\"TerminationDate\",\"FixedRate\",\"NPV\",\"ParRate\",\"Spread\",\"SwapType\",\"PayFixed\") FROM '$OUT_DIR/main_tbl.csv' WITH (FORMAT csv, HEADER true)" 
-  psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "COPY \"risk_tbl\" (\"ID\",\"1W\",\"2W\",\"3W\",\"1M\",\"2M\",\"3M\",\"4M\",\"5M\",\"6M\",\"7M\",\"8M\",\"9M\",\"10M\",\"11M\",\"12M\",\"18M\",\"2Y\",\"3Y\",\"4Y\",\"5Y\",\"6Y\",\"7Y\",\"8Y\",\"9Y\",\"10Y\",\"12Y\",\"15Y\",\"20Y\",\"25Y\",\"30Y\",\"40Y\",\"N\",\"R\",\"z\",\"RowType\") FROM '$OUT_DIR/risk_tbl.csv' WITH (FORMAT csv, HEADER true)"
+  psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "COPY \"main_tbl\" (\"RowType\",\"ID\",\"CounterpartyID\",\"StartDate\",\"TerminationDate\",\"FixedRate\",\"NPV\",\"ParRate\",\"ParSpread\",\"SwapType\",\"PayFixed\") FROM '$OUT_DIR/main_tbl.csv' WITH (FORMAT csv, HEADER true)" 
+  psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "COPY \"risk_tbl\" (\"ID\",\"1W\",\"2W\",\"3W\",\"1M\",\"2M\",\"3M\",\"4M\",\"5M\",\"6M\",\"7M\",\"8M\",\"9M\",\"10M\",\"11M\",\"12M\",\"18M\",\"2Y\",\"3Y\",\"4Y\",\"5Y\",\"6Y\",\"7Y\",\"8Y\",\"9Y\",\"10Y\",\"12Y\",\"15Y\",\"20Y\",\"25Y\",\"30Y\",\"40Y\",\"R\",\"z\",\"RowType\") FROM '$OUT_DIR/risk_tbl.csv' WITH (FORMAT csv, HEADER true)"
   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "COPY \"main_agg\" (\"RowType\",\"ID\",\"NPV\") FROM '$OUT_DIR/main_agg.csv' WITH (FORMAT csv, HEADER true)"
-  psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "COPY \"risk_agg\" (\"RowType\",\"ID\",\"1W\",\"2W\",\"3W\",\"1M\",\"2M\",\"3M\",\"4M\",\"5M\",\"6M\",\"7M\",\"8M\",\"9M\",\"10M\",\"11M\",\"12M\",\"18M\",\"2Y\",\"3Y\",\"4Y\",\"5Y\",\"6Y\",\"7Y\",\"8Y\",\"9Y\",\"10Y\",\"12Y\",\"15Y\",\"20Y\",\"25Y\",\"30Y\",\"40Y\",\"N\",\"R\",\"z\") FROM '$OUT_DIR/risk_agg.csv' WITH (FORMAT csv, HEADER true)"
+  psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "COPY \"risk_agg\" (\"RowType\",\"ID\",\"1W\",\"2W\",\"3W\",\"1M\",\"2M\",\"3M\",\"4M\",\"5M\",\"6M\",\"7M\",\"8M\",\"9M\",\"10M\",\"11M\",\"12M\",\"18M\",\"2Y\",\"3Y\",\"4Y\",\"5Y\",\"6Y\",\"7Y\",\"8Y\",\"9Y\",\"10Y\",\"12Y\",\"15Y\",\"20Y\",\"25Y\",\"30Y\",\"40Y\",\"R\",\"z\") FROM '$OUT_DIR/risk_agg.csv' WITH (FORMAT csv, HEADER true)"
 else
   echo "==> Loading via Prisma (no psql)"
   (cd "$ROOT_DIR" && npx tsx scripts/load_csv_to_postgres.ts)

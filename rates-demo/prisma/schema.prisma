@@ -17,7 +17,7 @@ model MainTbl {
   FixedRate        Float?
   NPV              Float?
   ParRate          Float?
-  Spread           Float?
+  ParSpread        Float?
   Notional         BigInt?
   SwapType         String?
   PayFixed         Boolean?
@@ -61,7 +61,6 @@ model RiskTbl {
   c_30Y Float? @map("30Y")
   c_40Y Float? @map("40Y")
 
-  N     Float?
   R     Float?
   z     Float?
   RowType String?
@@ -118,7 +117,6 @@ model RiskAgg {
   c_30Y Float? @map("30Y")
   c_40Y Float? @map("40Y")
 
-  N     Float?
   R     Float?
   z     Float?
 

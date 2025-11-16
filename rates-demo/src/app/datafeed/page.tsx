@@ -445,7 +445,7 @@ function BlotterGrid() {
       .map((c) => {
         const base: GridColDef<BlotterRow> = {
           field: c.field,
-          headerName: c.field === "Spread" ? "ParSpread" : c.field,
+          headerName: c.field,
           flex: 1,
         };
         const t = (c.type || "").toLowerCase();
@@ -471,7 +471,7 @@ function BlotterGrid() {
           base.align = "right";
           base.width = 180;
         }
-        if (c.field === "Spread") {
+        if (c.field === "ParSpread") {
           base.valueFormatter = (p: any) => (p.value == null ? "" : `${Number(p.value).toFixed(2)} bp`);
           base.renderCell = (p: any) => <span>{p.value == null ? "" : `${Number(p.value).toFixed(2)} bp`}</span>;
           base.align = "right";

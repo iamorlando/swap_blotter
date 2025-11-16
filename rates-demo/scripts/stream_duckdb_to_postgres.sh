@@ -37,7 +37,7 @@ if ! command -v duckdb >/dev/null 2>&1; then
 fi
 
 echo "==> Pushing Prisma schema to Postgres (using DIRECT URL)"
-(cd "$ROOT_DIR" && DATABASE_URL="$DIRECT_URL" npx prisma generate >/dev/null && DATABASE_URL="$DIRECT_URL" npx prisma db push)
+(cd "$ROOT_DIR" && DATABASE_URL="$DIRECT_URL" npx prisma generate >/dev/null && DATABASE_URL="$DIRECT_URL" npx prisma db push --accept-data-loss)
 
 echo "==> Loading DuckDB postgres extension and streaming tables to Postgres"
 TRUNCATE_SQL=""
@@ -68,10 +68,10 @@ ${TRUNCATE_SQL}
 
 -- main_tbl
 INSERT INTO pg.public.main_tbl (
-  "RowType","ID","CounterpartyID","StartDate","TerminationDate","FixedRate","NPV","ParRate","Spread","Notional","SwapType","PayFixed"
+  "RowType","ID","CounterpartyID","StartDate","TerminationDate","FixedRate","NPV","ParRate","ParSpread","Notional","SwapType","PayFixed"
 )
 SELECT 
-  "RowType","ID","CounterpartyID","StartDate","TerminationDate","FixedRate","NPV","ParRate","Spread","Notional","SwapType","PayFixed"
+  "RowType","ID","CounterpartyID","StartDate","TerminationDate","FixedRate","NPV","ParRate","ParSpread","Notional","SwapType","PayFixed"
 FROM (
   SELECT *,
     row_number() OVER (PARTITION BY "ID" ORDER BY "StartDate" DESC NULLS LAST, "TerminationDate" DESC NULLS LAST, "ID") AS rn
@@ -81,10 +81,10 @@ WHERE rn = 1;
 
 -- risk_tbl
 INSERT INTO pg.public.risk_tbl (
-  "ID","1W","2W","3W","1M","2M","3M","4M","5M","6M","7M","8M","9M","10M","11M","12M","18M","2Y","3Y","4Y","5Y","6Y","7Y","8Y","9Y","10Y","12Y","15Y","20Y","25Y","30Y","40Y","N","R","z","RowType"
+  "ID","1W","2W","3W","1M","2M","3M","4M","5M","6M","7M","8M","9M","10M","11M","12M","18M","2Y","3Y","4Y","5Y","6Y","7Y","8Y","9Y","10Y","12Y","15Y","20Y","25Y","30Y","40Y","R","z","RowType"
 )
 SELECT 
-  "ID","1W","2W","3W","1M","2M","3M","4M","5M","6M","7M","8M","9M","10M","11M","12M","18M","2Y","3Y","4Y","5Y","6Y","7Y","8Y","9Y","10Y","12Y","15Y","20Y","25Y","30Y","40Y","N","R","z","RowType"
+  "ID","1W","2W","3W","1M","2M","3M","4M","5M","6M","7M","8M","9M","10M","11M","12M","18M","2Y","3Y","4Y","5Y","6Y","7Y","8Y","9Y","10Y","12Y","15Y","20Y","25Y","30Y","40Y","R","z","RowType"
 FROM (
   SELECT *,
     row_number() OVER (PARTITION BY "ID" ORDER BY "ID") AS rn
@@ -102,10 +102,10 @@ FROM src.main_agg;
 
 -- risk_agg
 INSERT INTO pg.public.risk_agg (
-  "RowType","ID","1W","2W","3W","1M","2M","3M","4M","5M","6M","7M","8M","9M","10M","11M","12M","18M","2Y","3Y","4Y","5Y","6Y","7Y","8Y","9Y","10Y","12Y","15Y","20Y","25Y","30Y","40Y","N","R","z"
+  "RowType","ID","1W","2W","3W","1M","2M","3M","4M","5M","6M","7M","8M","9M","10M","11M","12M","18M","2Y","3Y","4Y","5Y","6Y","7Y","8Y","9Y","10Y","12Y","15Y","20Y","25Y","30Y","40Y","R","z"
 )
 SELECT 
-  "RowType","ID","1W","2W","3W","1M","2M","3M","4M","5M","6M","7M","8M","9M","10M","11M","12M","18M","2Y","3Y","4Y","5Y","6Y","7Y","8Y","9Y","10Y","12Y","15Y","20Y","25Y","30Y","40Y","N","R","z"
+  "RowType","ID","1W","2W","3W","1M","2M","3M","4M","5M","6M","7M","8M","9M","10M","11M","12M","18M","2Y","3Y","4Y","5Y","6Y","7Y","8Y","9Y","10Y","12Y","15Y","20Y","25Y","30Y","40Y","R","z"
 FROM src.risk_agg;
 
 COMMIT;
