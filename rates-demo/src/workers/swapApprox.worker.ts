@@ -6,7 +6,11 @@ const ctx: any = self as any;
 
 let pyodide: any = null;
 let mdHelper: any = null;
+let approxHelper: any = null;
 let initialized = false;
+let latestCurveRows: Array<{ Term: string; Rate: number }> | null = null;
+let latestSwaps: Array<any> | null = null;
+let latestRisk: Array<any> | null = null;
 
 function log(message: string) {
   ctx.postMessage({ type: "log", source: "swapApprox", message });
@@ -35,15 +39,21 @@ async function init(baseUrl: string, datafeedUrl: string, approxUrl: string) {
       + `m_swap = types.ModuleType('py.swap_approximation'); m_swap.__package__='py'\n`
       + `exec(compile(${JSON.stringify(approxCode)}, 'py/swap_approximation.py', 'exec'), m_swap.__dict__)\n`
       + `sys.modules['py.swap_approximation'] = m_swap\n`
-      + `from py.swap_approximation import get_md_changes\n`
+      + `from py.swap_approximation import get_md_changes, aproximate_swap_quotes\n`
       + `def __md_from_market(rows):\n`
       + `    df = pd.DataFrame(rows)\n`
       + `    if 'Rate' in df.columns:\n`
       + `        df['Rate'] = df['Rate'].astype(float)\n`
-      + `    return get_md_changes(df).reset_index().to_dict(orient='records')\n`;
+      + `    return get_md_changes(df).reset_index().to_dict(orient='records')\n`
+      + `def __approx_swaps(swaps_rows, risk_rows, curve_rows):\n`
+      + `    swaps_df = pd.DataFrame(swaps_rows)\n`
+      + `    risk_df = pd.DataFrame(risk_rows)\n`
+      + `    curve_df = pd.DataFrame(curve_rows)\n`
+      + `    return aproximate_swap_quotes(swaps_df, risk_df, curve_df).to_dict(orient='records')\n`;
 
     pyodide.runPython(bootstrap);
     mdHelper = pyodide.globals.get("__md_from_market");
+    approxHelper = pyodide.globals.get("__approx_swaps");
     initialized = true;
     ctx.postMessage({ type: "ready" });
   } catch (e) {
@@ -55,6 +65,7 @@ function handleCurve(rows: Array<{ Term: string; Rate: number }>) {
   if (!initialized || !mdHelper || !rows || !rows.length) {
     return;
   }
+  latestCurveRows = rows;
   let pyRows: any = null;
   let resultProxy: any = null;
   try {
@@ -70,6 +81,41 @@ function handleCurve(rows: Array<{ Term: string; Rate: number }>) {
     if (pyRows && typeof pyRows.destroy === "function") pyRows.destroy();
     if (resultProxy && typeof resultProxy.destroy === "function") resultProxy.destroy();
   }
+  tryApproximate();
+}
+
+function handleSwaps(swaps: any[], risk: any[]) {
+  latestSwaps = swaps && swaps.length ? swaps : null;
+  latestRisk = risk && risk.length ? risk : null;
+  tryApproximate();
+}
+
+function tryApproximate() {
+  if (!initialized || !approxHelper) return;
+  if (!latestCurveRows || !latestCurveRows.length) return;
+  if (!latestSwaps || !latestSwaps.length) return;
+  if (!latestRisk || !latestRisk.length) return;
+  let swapsPy: any = null;
+  let riskPy: any = null;
+  let curvePy: any = null;
+  let resultProxy: any = null;
+  try {
+    swapsPy = pyodide.toPy(latestSwaps);
+    riskPy = pyodide.toPy(latestRisk);
+    curvePy = pyodide.toPy(latestCurveRows);
+    resultProxy = approxHelper(swapsPy, riskPy, curvePy);
+    const arr = resultProxy.toJs({ create_proxies: false });
+    const plain = JSON.parse(JSON.stringify(arr));
+    ctx.postMessage({ type: "approx", rows: plain });
+    log(`approx rows=${Array.isArray(plain) ? plain.length : 0}`);
+  } catch (e) {
+    ctx.postMessage({ type: "error", error: String(e) });
+  } finally {
+    if (swapsPy && typeof swapsPy.destroy === "function") swapsPy.destroy();
+    if (riskPy && typeof riskPy.destroy === "function") riskPy.destroy();
+    if (curvePy && typeof curvePy.destroy === "function") curvePy.destroy();
+    if (resultProxy && typeof resultProxy.destroy === "function") resultProxy.destroy();
+  }
 }
 
 ctx.onmessage = async (ev: MessageEvent) => {
@@ -81,5 +127,7 @@ ctx.onmessage = async (ev: MessageEvent) => {
     await init(base, datafeedUrl, approxUrl);
   } else if (msg.type === "curve") {
     handleCurve(msg.market as Array<{ Term: string; Rate: number }>);
+  } else if (msg.type === "swaps") {
+    handleSwaps(msg.swaps as any[], msg.risk as any[]);
   }
 };

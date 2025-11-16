@@ -30,6 +30,8 @@ export default function DatafeedPage() {
   const approxRef = React.useRef<Worker | null>(null);
   const approxReadyRef = React.useRef(false);
   const latestCurveRef = React.useRef<Array<{ Term: string; Rate: number }> | null>(null);
+  const [approxReady, setApproxReady] = React.useState(false);
+  const [approxOverrides, setApproxOverrides] = React.useState<Record<string, any>>({});
   const pushApproxMarket = React.useCallback((rows: Array<{ Term: string; Rate: number }>) => {
     if (rows && rows.length) {
       latestCurveRef.current = rows;
@@ -91,16 +93,29 @@ export default function DatafeedPage() {
   React.useEffect(() => {
     const w = new Worker(new URL("../../workers/swapApprox.worker.ts", import.meta.url));
     approxRef.current = w;
+    approxReadyRef.current = false;
+    setApproxReady(false);
+    setApproxOverrides({});
     w.onmessage = (e: MessageEvent) => {
       const msg = e.data || {};
       if (msg.type === "ready") {
         console.log("[approx worker] ready");
         approxReadyRef.current = true;
+        setApproxReady(true);
         if (latestCurveRef.current) {
           w.postMessage({ type: "curve", market: latestCurveRef.current });
         }
       } else if (msg.type === "md") {
         console.log("[approx worker] md", msg.rows);
+      } else if (msg.type === "approx") {
+        const map: Record<string, any> = Object.create(null);
+        (msg.rows || []).forEach((row: any) => {
+          const key = row?.ID ?? row?.id;
+          if (key != null) {
+            map[String(key)] = row;
+          }
+        });
+        setApproxOverrides(map);
       } else if (msg.type === "error") {
         console.error("[approx worker] error", msg.error);
       } else if (msg.type === "log") {
@@ -110,9 +125,20 @@ export default function DatafeedPage() {
     w.postMessage({ type: "init", baseUrl: "https://cdn.jsdelivr.net/pyodide/v0.26.1/full/", datafeedUrl: "/py/datafeed.py", approxUrl: "/py/swap_approximation.py" });
     return () => {
       approxReadyRef.current = false;
+      setApproxReady(false);
+      setApproxOverrides({});
       w.terminate();
       approxRef.current = null;
     };
+  }, []);
+
+  const requestApproximation = React.useCallback((swaps: any[], risk: any[]) => {
+    if (!approxRef.current) return;
+    approxRef.current.postMessage({ type: "swaps", swaps, risk });
+  }, []);
+
+  const clearApproximation = React.useCallback(() => {
+    setApproxOverrides({});
   }, []);
 
   const rows: Row[] = React.useMemo(
@@ -451,7 +477,13 @@ export default function DatafeedPage() {
   const Bottom = (
     <div className="p-4 space-y-2">
       <div className="text-sm text-gray-300">Blotter</div>
-      <BlotterGrid />
+      <BlotterGrid
+        approxReady={approxReady}
+        approxOverrides={approxOverrides}
+        requestApproximation={requestApproximation}
+        clearApproximation={clearApproximation}
+        hasCurveData={data.length > 0}
+      />
     </div>
   );
 
@@ -475,7 +507,15 @@ export default function DatafeedPage() {
   );
 }
 
-function BlotterGrid() {
+type BlotterGridProps = {
+  approxReady: boolean;
+  approxOverrides: Record<string, any>;
+  requestApproximation: (swaps: any[], risk: any[]) => void;
+  clearApproximation: () => void;
+  hasCurveData: boolean;
+};
+
+function BlotterGrid({ approxReady, approxOverrides, requestApproximation, clearApproximation, hasCurveData }: BlotterGridProps) {
   const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 });
   const fmtDate = React.useCallback((v: any) => {
     if (!v) return "";
@@ -563,6 +603,43 @@ function BlotterGrid() {
   ]);
   const [loading, setLoading] = React.useState(false);
 
+  const sanitizeRecord = React.useCallback((row: Record<string, any>) => {
+    const out: Record<string, any> = {};
+    Object.entries(row || {}).forEach(([key, value]) => {
+      out[key] = typeof value === "bigint" ? Number(value) : value;
+    });
+    return out;
+  }, []);
+
+  const requestApprox = React.useCallback(async (baseRows: BlotterRow[]) => {
+    if (!approxReady || !hasCurveData) return;
+    if (!baseRows || !baseRows.length) return;
+    const ids = baseRows
+      .map((r) => r.ID ?? r.id)
+      .filter((id) => id != null)
+      .map((id) => String(id));
+    if (!ids.length) return;
+    try {
+      const query = ids.map((id) => encodeURIComponent(id)).join(",");
+      const res = await fetch(`/api/risk-batch?ids=${query}`);
+      if (!res.ok) throw new Error(`risk fetch failed: ${res.status}`);
+      const data = await res.json();
+      const riskRows: any[] = Array.isArray(data.rows) ? data.rows : [];
+      const sanitizedRisk = riskRows.map((row) => sanitizeRecord(row));
+      const swapsPayload = baseRows.map((row) => ({
+        ID: row.ID ?? row.id,
+        id: row.id,
+        FixedRate: row.FixedRate == null ? null : Number(row.FixedRate),
+        NPV: row.NPV == null ? null : Number(row.NPV),
+        ParRate: row.ParRate == null ? null : Number(row.ParRate),
+        Notional: row.Notional == null ? null : Number(row.Notional),
+      }));
+      requestApproximation(swapsPayload, sanitizedRisk);
+    } catch (err) {
+      console.error("[blotter] risk fetch", err);
+    }
+  }, [approxReady, hasCurveData, requestApproximation, sanitizeRecord]);
+
   const fetchData = React.useCallback(async () => {
     setLoading(true);
     const sortField = sortModel[0]?.field ?? generatedIdField ?? "id";
@@ -573,8 +650,10 @@ function BlotterGrid() {
     const baseRows: BlotterRow[] = data.rows || [];
     setRows(baseRows);
     setRowCount(data.total || 0);
+    clearApproximation();
+    requestApprox(baseRows).catch((err) => console.error("[blotter] approx", err));
     setLoading(false);
-  }, [paginationModel.page, paginationModel.pageSize, sortModel]);
+  }, [paginationModel.page, paginationModel.pageSize, sortModel, clearApproximation, requestApprox]);
 
   React.useEffect(() => {
     fetchData();
@@ -586,6 +665,17 @@ function BlotterGrid() {
       setSortModel([{ field: columns[0]?.field ?? (generatedIdField as string) ?? "ID", sort: "asc" }]);
     }
   }, [columns]);
+
+  const displayRows = React.useMemo(() => {
+    if (!approxOverrides || !Object.keys(approxOverrides).length) return rows;
+    return rows.map((row) => {
+      const key = row.ID ?? row.id;
+      if (key == null) return row;
+      const override = approxOverrides[String(key)];
+      if (!override) return row;
+      return { ...row, ...override, id: row.id };
+    });
+  }, [rows, approxOverrides]);
 
   return (
     <div className="h-[420px] border border-gray-800 rounded-md bg-gray-900 flex flex-col">
@@ -630,7 +720,7 @@ function BlotterGrid() {
       {/* Grid (scrolls) */}
       <div className="flex-1 min-h-0">
         <DataGrid
-          rows={rows}
+          rows={displayRows}
           rowCount={rowCount}
           columns={columns}
           loading={loading}
