@@ -3,7 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Scatter } from "recharts";
 import { DataGrid, GridColDef, GridPaginationModel, GridSortModel } from "@mui/x-data-grid";
 import { Slider } from "@mui/material";
 import VerticalSplit from "@/components/VerticalSplit";
@@ -14,6 +14,12 @@ import Modal from "@/components/Modal";
 type Row = { id: number; Term: string; Rate: number };
 type ApiColumn = { field: string; type?: string };
 type BlotterRow = Record<string, any> & { id: string | number };
+type DragState = {
+  mode: "curve" | "point";
+  startClientY: number;
+  baseCurve: Array<{ Term: string; Rate: number }>;
+  targetIndex?: number;
+};
 
 export default function DatafeedPage() {
   const router = useRouter();
@@ -50,6 +56,34 @@ export default function DatafeedPage() {
   const [moveDir, setMoveDir] = React.useState<"up" | "down" | "flat" | null>(null);
   const [seq, setSeq] = React.useState(0);
   const [fps, setFps] = React.useState(1); // ticks per second
+  const [shockBps, setShockBps] = React.useState(25);
+  const [hoveredTerm, setHoveredTerm] = React.useState<string | null>(null);
+  const [hoveringCurve, setHoveringCurve] = React.useState(false);
+  const [dragState, setDragState] = React.useState<DragState | null>(null);
+  const autoWasRunningRef = React.useRef(false);
+  const chartBoxRef = React.useRef<HTMLDivElement | null>(null);
+  const [chartSize, setChartSize] = React.useState({ width: 0, height: 0 });
+
+  React.useEffect(() => {
+    const box = chartBoxRef.current;
+    if (!box) return;
+    const updateSize = () => {
+      setChartSize({ width: box.clientWidth, height: box.clientHeight });
+    };
+    updateSize();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (entry?.contentRect) {
+        setChartSize({
+          width: entry.contentRect.width,
+          height: entry.contentRect.height,
+        });
+      }
+    });
+    observer.observe(box);
+    return () => observer.disconnect();
+  }, []);
 
   React.useEffect(() => {
     const w = new Worker(new URL("../../workers/datafeed.worker.ts", import.meta.url));
@@ -132,6 +166,11 @@ export default function DatafeedPage() {
     };
   }, []);
 
+  React.useEffect(() => {
+    if (!ready || !workerRef.current) return;
+    workerRef.current.postMessage({ type: "setTickParams", params: { sigma_bps: shockBps } });
+  }, [ready, shockBps]);
+
   const requestApproximation = React.useCallback((swaps: any[], risk: any[]) => {
     if (!approxRef.current) return;
     approxRef.current.postMessage({ type: "swaps", swaps, risk });
@@ -146,6 +185,82 @@ export default function DatafeedPage() {
     [data]
   );
   const dataPct = React.useMemo(() => data.map(d => ({ Term: d.Term, RatePct: (d.Rate == null ? null : Number(d.Rate) * 100) })), [data]);
+  const rateDomain = React.useMemo(() => {
+    const vals = dataPct.map((d) => (d.RatePct == null ? null : Number(d.RatePct))).filter((v) => typeof v === "number") as number[];
+    const minVal = vals.length ? Math.min(...vals) : 0;
+    const maxVal = vals.length ? Math.max(...vals) : 0;
+    const spread = maxVal - minVal;
+    const pad = Math.max(0.2, spread * 0.15 || 0.2);
+    const lo = minVal - pad;
+    const hi = maxVal + pad;
+    return { min: lo, max: hi };
+  }, [dataPct]);
+  const rateDeltaFromPixels = React.useCallback((dy: number) => {
+    const span = rateDomain.max - rateDomain.min;
+    const h = chartSize.height || 1;
+    if (!span || !Number.isFinite(span)) return 0;
+    return (-dy * span) / h;
+  }, [rateDomain, chartSize.height]);
+  const computeIntervalMs = React.useCallback((fpsVal: number) => {
+    return Math.max(100, Math.round(1000 / Math.max(1, Math.min(10, fpsVal))));
+  }, []);
+  const commitCurve = React.useCallback((rows: Array<{ Term: string; Rate: number }>) => {
+    setMovedTerm(null);
+    setMoveDir(null);
+    setData(rows);
+    pushApproxMarket(rows);
+    workerRef.current?.postMessage({ type: "applyCurve", data: rows });
+  }, [pushApproxMarket]);
+  const shiftCurveFromDelta = React.useCallback((state: DragState, deltaPct: number) => {
+    const delta = deltaPct / 100;
+    return state.baseCurve.map((row, idx) => {
+      if (state.mode === "point" && idx !== state.targetIndex) return row;
+      return { ...row, Rate: Number(row.Rate) + delta };
+    });
+  }, []);
+  const beginDrag = React.useCallback((mode: "curve" | "point", clientY: number, targetIndex?: number) => {
+    if (!data.length) return;
+    autoWasRunningRef.current = auto;
+    if (auto) workerRef.current?.postMessage({ type: "stopAuto" });
+    if (mode === "curve") setHoveredTerm(null);
+    setDragState({ mode, startClientY: clientY, baseCurve: data, targetIndex });
+  }, [auto, data]);
+  const handleDragMove = React.useCallback((clientY: number) => {
+    setDragState((state) => {
+      if (!state) return state;
+      const deltaPct = rateDeltaFromPixels(clientY - state.startClientY);
+      const next = shiftCurveFromDelta(state, deltaPct);
+      setData(next);
+      pushApproxMarket(next);
+      return state;
+    });
+  }, [rateDeltaFromPixels, shiftCurveFromDelta, pushApproxMarket]);
+  const finalizeDrag = React.useCallback((clientY: number) => {
+    setDragState((state) => {
+      if (!state) return state;
+      const deltaPct = rateDeltaFromPixels(clientY - state.startClientY);
+      const next = shiftCurveFromDelta(state, deltaPct);
+      commitCurve(next);
+      if (autoWasRunningRef.current && auto) {
+        const intervalMs = computeIntervalMs(fps);
+        workerRef.current?.postMessage({ type: "startAuto", intervalMs });
+      }
+      autoWasRunningRef.current = false;
+      return null;
+    });
+  }, [rateDeltaFromPixels, shiftCurveFromDelta, commitCurve, auto, computeIntervalMs, fps]);
+
+  React.useEffect(() => {
+    if (!dragState) return;
+    const onMove = (ev: MouseEvent) => handleDragMove(ev.clientY);
+    const onUp = (ev: MouseEvent) => finalizeDrag(ev.clientY);
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+  }, [dragState, handleDragMove, finalizeDrag]);
 
   const columns: GridColDef<Row>[] = [
     { field: "Term", headerName: "Term", width: 120 },
@@ -180,7 +295,7 @@ export default function DatafeedPage() {
   const toggleAuto = () => {
     const now = !auto;
     setAuto(now);
-    const intervalMs = Math.max(100, Math.round(1000 / Math.max(1, Math.min(10, fps))))
+    const intervalMs = computeIntervalMs(fps);
     if (now) workerRef.current?.postMessage({ type: "startAuto", intervalMs });
     else workerRef.current?.postMessage({ type: "stopAuto" });
   };
@@ -188,8 +303,16 @@ export default function DatafeedPage() {
   const onFpsChange = (_: Event, val: number | number[]) => {
     const v = Array.isArray(val) ? val[0] : val;
     setFps(v);
-    const intervalMs = Math.max(100, Math.round(1000 / Math.max(1, Math.min(10, v))));
-    workerRef.current?.postMessage({ type: auto ? "updateInterval" : "noop", intervalMs });
+    const intervalMs = computeIntervalMs(v);
+    workerRef.current?.postMessage({ type: "updateInterval", intervalMs });
+  };
+
+  const onShockChange = (_: Event, val: number | number[]) => {
+    const v = Array.isArray(val) ? val[0] : val;
+    setShockBps(v);
+    if (ready) {
+      workerRef.current?.postMessage({ type: "setTickParams", params: { sigma_bps: v } });
+    }
   };
 
   const Controls = (
@@ -236,15 +359,44 @@ export default function DatafeedPage() {
     const { x, y, payload } = props;
     const label = payload?.value as string;
     const isMoved = label === movedTerm;
-    const cls = isMoved ? (moveDir === "up" ? "flash-up" : moveDir === "down" ? "flash-down" : "") : "";
+    const isHovered = label === hoveredTerm;
+    const cls = isMoved ? (moveDir === "up" ? "flash-up" : moveDir === "down" ? "flash-down" : "") : isHovered ? "font-semibold text-amber-300" : "";
+    const fill = isHovered ? "#fbbf24" : "#e5e7eb";
     return (
       <g transform={`translate(${x},${y})`} key={`${label}-${seq}`}>
-        <text dy={16} textAnchor="middle" className={cls} style={{ fontSize: 12, fill: '#e5e7eb' }}>
+        <text dy={16} textAnchor="middle" className={cls} style={{ fontSize: 12, fill }}>
           {label}
         </text>
       </g>
     );
   };
+
+  const PointHandle = (props: any) => {
+    const { cx, cy, payload, index } = props;
+    if (cx == null || cy == null) return null;
+    const term = payload?.Term as string;
+    const isDragging = dragState?.mode === "point" && dragState.targetIndex === index;
+    const active = hoveredTerm === term || isDragging;
+    return (
+      <g
+        onMouseEnter={() => { setHoveredTerm(term); setHoveringCurve(true); }}
+        onMouseLeave={() => { if (!dragState) { setHoveredTerm(null); setHoveringCurve(false); } }}
+        onMouseDown={(e: any) => {
+          e.stopPropagation();
+          if (e?.button !== 0) return;
+          const clientY = e?.clientY ?? 0;
+          beginDrag("point", clientY, index);
+          setHoveredTerm(term);
+          setHoveringCurve(true);
+        }}
+        cursor="ns-resize"
+      >
+        <circle cx={cx} cy={cy} r={isDragging ? 7 : active ? 6 : 4} fill={isDragging ? "#f59e0b" : "#9ca3af"} stroke="#111827" strokeWidth={2} />
+      </g>
+    );
+  };
+
+  const isCurveActive = hoveringCurve || Boolean(dragState);
 
   const LeftPanel = (
     <div className="p-6 space-y-4">
@@ -266,7 +418,7 @@ export default function DatafeedPage() {
       </div>
 
       {/* Settings box */}
-      <div className="w-full rounded-lg border border-gray-800 bg-gray-900 p-3">
+      <div className="w-full rounded-lg border border-gray-800 bg-gray-900 p-3 space-y-3">
         <div className="flex items-center justify-between gap-6">
           <div className="text-sm text-gray-300 whitespace-nowrap">Refresh frequency</div>
           <div className="w-56">
@@ -285,13 +437,42 @@ export default function DatafeedPage() {
             />
           </div>
         </div>
+        <div className="flex items-center justify-between gap-6">
+          <div className="text-sm text-gray-300 whitespace-nowrap">Tick magnitude (bp)</div>
+          <div className="w-56">
+            <Slider
+              value={shockBps}
+              min={5}
+              max={75}
+              step={5}
+              marks={[5, 15, 25, 35, 45, 55, 65, 75].map(v => ({ value: v, label: `${v}` }))}
+              onChange={onShockChange}
+              valueLabelDisplay="auto"
+              valueLabelFormat={(v) => `${v} bp`}
+              sx={{ mt: 0 }}
+            />
+          </div>
+        </div>
+        <div className="text-xs text-gray-500">Drag the curve for parallel shifts or drag individual points to craft scenarios; simulated ticks continue from the shifted base.</div>
       </div>
 
       {/* Market chart */}
       <div className="w-full rounded-lg border border-gray-800 bg-gray-900 p-3">
-        <div className="h-60 w-full">
+        <div className="h-60 w-full" ref={chartBoxRef}>
           <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={dataPct} margin={{ top: 10, right: 16, bottom: 0, left: 0 }}>
+            <AreaChart
+              data={dataPct}
+              margin={{ top: 10, right: 16, bottom: 0, left: 0 }}
+              onMouseEnter={() => setHoveringCurve(true)}
+              onMouseLeave={() => { if (!dragState) { setHoveringCurve(false); setHoveredTerm(null); } }}
+              onMouseDown={(_, e: any) => {
+                if (e?.button !== 0) return;
+                const clientY = e?.clientY ?? 0;
+                beginDrag("curve", clientY);
+                setHoveringCurve(true);
+              }}
+              style={{ cursor: dragState ? "grabbing" : "grab" }}
+            >
               <defs>
                 <linearGradient id="rateFill" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="0%" stopColor="#f59e0b" stopOpacity={0.45} />
@@ -300,9 +481,10 @@ export default function DatafeedPage() {
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
               <XAxis dataKey="Term" tick={<CustomXAxisTick />} axisLine={{ stroke: "#374151" }} tickLine={{ stroke: "#374151" }} />
-              <YAxis tick={{ fill: "#9ca3af", fontSize: 12 }} axisLine={{ stroke: "#374151" }} tickLine={{ stroke: "#374151" }} domain={["dataMin - 0.2", "dataMax + 0.2"]} />
+              <YAxis tick={{ fill: "#9ca3af", fontSize: 12 }} axisLine={{ stroke: "#374151" }} tickLine={{ stroke: "#374151" }} domain={[rateDomain.min, rateDomain.max]} />
               <Tooltip contentStyle={{ background: "#111827", border: "1px solid #374151", color: "#e5e7eb" }} />
-              <Area type="monotone" dataKey="RatePct" stroke="#f59e0b" strokeWidth={2} fill="url(#rateFill)" />
+              <Area type="monotone" dataKey="RatePct" stroke="#f59e0b" strokeWidth={isCurveActive ? 3 : 2} fill="url(#rateFill)" fillOpacity={isCurveActive ? 0.35 : 0.25} />
+              <Scatter data={dataPct} fill="#f59e0b" shape={(p: any) => <PointHandle {...p} />} />
             </AreaChart>
           </ResponsiveContainer>
         </div>

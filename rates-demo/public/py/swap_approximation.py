@@ -41,7 +41,7 @@ def aproximate_swap_quotes(swaps_df: DataFrame, risk_df: DataFrame, new_data: Da
     base_curve = _source.reset_index()
     md_changes_df = get_md_changes(new_data, base_curve)
     changes = md_changes_df.loc[term_cols, "Change"].to_numpy(dtype="float64")
-    new_npvs = npvs + (risk*100 @ changes)
+    new_npvs = npvs + (risk*10000 @ changes)
     swaps_df["NPV"] = new_npvs
     rates = swaps_df["FixedRate"].to_numpy(dtype="float64")
     fixedraterisk = risk_df["R"].to_numpy(dtype="float64")

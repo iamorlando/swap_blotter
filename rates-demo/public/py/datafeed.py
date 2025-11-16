@@ -98,9 +98,9 @@ def _neighbor_bounds(i: int, margin_bps: float) -> tuple[float, float]:
 
 def simulate_tick(
     rho: float = 0.9,
-    sigma_bps: float = 5.0,
+    sigma_bps: float = 20.0,
     mean_revert: float = 0.02,
-    margin_bps: float = 3.0,
+    margin_bps: float = 10.0,
     term: str | None = None,
 ) -> tuple[str, float]:
     """

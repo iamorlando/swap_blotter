@@ -64,7 +64,7 @@ async function loadMainTbl(dir: string) {
     FixedRate: toFloat(r['FixedRate']) ?? undefined,
     NPV: toFloat(r['NPV']) ?? undefined,
     ParRate: toFloat(r['ParRate']) ?? undefined,
-    ParSpread: toFloat(r['ParSpread']) ?? undefined,
+    // ParSpread: toFloat(r['ParSpread']) ?? undefined,
     SwapType: r['SwapType'] ?? undefined,
     PayFixed: toBool(r['PayFixed']) ?? undefined,
   }));
