@@ -123,3 +123,13 @@ model RiskAgg {
   @@id([RowType, ID])
   @@map("risk_agg")
 }
+
+// Mirrors DuckDB fixings
+model Fixing {
+  indexName String   @map("index")
+  date      DateTime @map("date")
+  value     Float?
+
+  @@id([indexName, date])
+  @@map("fixings")
+}

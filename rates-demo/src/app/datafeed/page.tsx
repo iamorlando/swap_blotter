@@ -38,6 +38,13 @@ export default function DatafeedPage() {
   const latestCurveRef = React.useRef<Array<{ Term: string; Rate: number }> | null>(null);
   const [approxReady, setApproxReady] = React.useState(false);
   const [approxOverrides, setApproxOverrides] = React.useState<Record<string, any>>({});
+  const [swapSnapshot, setSwapSnapshot] = React.useState<BlotterRow | null>(null);
+  const [riskMapState, setRiskMapState] = React.useState<Record<string, any>>({});
+  const riskMapRef = React.useRef<Record<string, any>>({});
+  const updateRiskMap = React.useCallback((next: Record<string, any>) => {
+    riskMapRef.current = next;
+    setRiskMapState(next);
+  }, []);
   const pushApproxMarket = React.useCallback((rows: Array<{ Term: string; Rate: number }>) => {
     if (rows && rows.length) {
       latestCurveRef.current = rows;
@@ -63,6 +70,13 @@ export default function DatafeedPage() {
   const autoWasRunningRef = React.useRef(false);
   const chartBoxRef = React.useRef<HTMLDivElement | null>(null);
   const [chartSize, setChartSize] = React.useState({ width: 0, height: 0 });
+  const pointDragRef = React.useRef(false);
+  const normalizeRateInput = React.useCallback((val: any, fallback: number) => {
+    const num = Number(val);
+    if (!Number.isFinite(num)) return fallback;
+    // Accept either decimal (0.05) or percent (5 -> 0.05)
+    return Math.abs(num) > 1 ? num / 100 : num;
+  }, []);
 
   React.useEffect(() => {
     const box = chartBoxRef.current;
@@ -190,7 +204,8 @@ export default function DatafeedPage() {
     return dragState.baseCurve.map((d) => ({ Term: d.Term, RatePct: (d.Rate == null ? null : Number(d.Rate) * 100) }));
   }, [dragState]);
   const rateDomain = React.useMemo(() => {
-    const vals = dataPct.map((d) => (d.RatePct == null ? null : Number(d.RatePct))).filter((v) => typeof v === "number") as number[];
+    const all = [...dataPct, ...(dragBaselinePct || [])];
+    const vals = all.map((d) => (d.RatePct == null ? null : Number(d.RatePct))).filter((v) => typeof v === "number") as number[];
     const minVal = vals.length ? Math.min(...vals) : 0;
     const maxVal = vals.length ? Math.max(...vals) : 0;
     const spread = maxVal - minVal;
@@ -198,7 +213,7 @@ export default function DatafeedPage() {
     const lo = minVal - pad;
     const hi = maxVal + pad;
     return { min: lo, max: hi };
-  }, [dataPct]);
+  }, [dataPct, dragBaselinePct]);
   const rateDeltaFromPixels = React.useCallback((dy: number) => {
     const span = rateDomain.max - rateDomain.min;
     const h = chartSize.height || 1;
@@ -215,6 +230,13 @@ export default function DatafeedPage() {
     pushApproxMarket(rows);
     workerRef.current?.postMessage({ type: "applyCurve", data: rows });
   }, [pushApproxMarket]);
+  const applyRateChange = React.useCallback((term: string, newRate: number) => {
+    if (!Number.isFinite(newRate)) return;
+    const idx = data.findIndex((d) => d.Term === term);
+    if (idx < 0) return;
+    const next = data.map((d, i) => (i === idx ? { ...d, Rate: newRate } : d));
+    commitCurve(next);
+  }, [data, commitCurve]);
   const shiftCurveFromDelta = React.useCallback((state: DragState, deltaPct: number) => {
     const delta = deltaPct / 100;
     return state.baseCurve.map((row, idx) => {
@@ -250,6 +272,7 @@ export default function DatafeedPage() {
         workerRef.current?.postMessage({ type: "startAuto", intervalMs });
       }
       autoWasRunningRef.current = false;
+      pointDragRef.current = false;
       return null;
     });
   }, [rateDeltaFromPixels, shiftCurveFromDelta, commitCurve, auto, computeIntervalMs, fps]);
@@ -266,6 +289,27 @@ export default function DatafeedPage() {
     };
   }, [dragState, handleDragMove, finalizeDrag]);
 
+  const onEditStart = React.useCallback(() => {
+    autoWasRunningRef.current = auto;
+    if (auto) workerRef.current?.postMessage({ type: "stopAuto" });
+  }, [auto]);
+
+  const onEditStop = React.useCallback(() => {
+    if (autoWasRunningRef.current && auto) {
+      const intervalMs = computeIntervalMs(fps);
+      workerRef.current?.postMessage({ type: "startAuto", intervalMs });
+    }
+    autoWasRunningRef.current = false;
+  }, [auto, computeIntervalMs, fps]);
+
+  const processRowUpdate = React.useCallback((newRow: Row, oldRow: Row) => {
+    const term = newRow.Term;
+    const prev = Number(oldRow.Rate);
+    const normalized = normalizeRateInput(newRow.Rate, prev);
+    applyRateChange(term, normalized);
+    return { ...newRow, Rate: normalized };
+  }, [normalizeRateInput, applyRateChange]);
+
   const columns: GridColDef<Row>[] = [
     { field: "Term", headerName: "Term", width: 120 },
     {
@@ -273,6 +317,7 @@ export default function DatafeedPage() {
       headerName: "Rate",
       width: 160,
       type: "number",
+      editable: true,
       renderCell: (params) => {
         const term = (params.row as Row).Term;
         const isMoved = term === movedTerm;
@@ -375,6 +420,18 @@ export default function DatafeedPage() {
     );
   };
 
+  const handlePointMouseDown = React.useCallback((entry: any, idx: number, ev: any) => {
+    if (ev?.stopPropagation) ev.stopPropagation();
+    if (ev?.preventDefault) ev.preventDefault();
+    if (ev?.button !== 0) return;
+    pointDragRef.current = true;
+    const clientY = ev?.clientY ?? 0;
+    const term = entry?.payload?.Term ?? dataPct[idx]?.Term ?? null;
+    if (term) setHoveredTerm(term);
+    beginDrag("point", clientY, idx);
+    setHoveringCurve(true);
+  }, [beginDrag, dataPct]);
+
   const PointHandle = (props: any) => {
     const { cx, cy, payload, index } = props;
     if (cx == null || cy == null) return null;
@@ -385,17 +442,9 @@ export default function DatafeedPage() {
       <g
         onMouseEnter={() => { setHoveredTerm(term); setHoveringCurve(true); }}
         onMouseLeave={() => { if (!dragState) { setHoveredTerm(null); setHoveringCurve(false); } }}
-        onMouseDown={(e: any) => {
-          e.stopPropagation();
-          if (e?.button !== 0) return;
-          const clientY = e?.clientY ?? 0;
-          beginDrag("point", clientY, index);
-          setHoveredTerm(term);
-          setHoveringCurve(true);
-        }}
         cursor="ns-resize"
       >
-        <circle cx={cx} cy={cy} r={isDragging ? 7 : active ? 6 : 4} fill={isDragging ? "#f59e0b" : "#9ca3af"} stroke="#111827" strokeWidth={2} />
+        <circle cx={cx} cy={cy} r={isDragging ? 7 : active ? 6 : 4} fill={isDragging ? "#f59e0b" : "#9ca3af"} stroke="#111827" strokeWidth={2} pointerEvents="all" />
       </g>
     );
   };
@@ -470,6 +519,7 @@ export default function DatafeedPage() {
               onMouseEnter={() => setHoveringCurve(true)}
               onMouseLeave={() => { if (!dragState) { setHoveringCurve(false); setHoveredTerm(null); } }}
               onMouseDown={(_, e: any) => {
+                if (pointDragRef.current) { pointDragRef.current = false; return; }
                 if (e?.button !== 0) return;
                 const clientY = e?.clientY ?? 0;
                 beginDrag("curve", clientY);
@@ -486,7 +536,13 @@ export default function DatafeedPage() {
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
               <XAxis dataKey="Term" tick={<CustomXAxisTick />} axisLine={{ stroke: "#374151" }} tickLine={{ stroke: "#374151" }} />
-              <YAxis tick={{ fill: "#9ca3af", fontSize: 12 }} axisLine={{ stroke: "#374151" }} tickLine={{ stroke: "#374151" }} domain={[rateDomain.min, rateDomain.max]} />
+              <YAxis
+                tick={{ fill: "#9ca3af", fontSize: 12 }}
+                axisLine={{ stroke: "#374151" }}
+                tickLine={{ stroke: "#374151" }}
+                domain={[rateDomain.min, rateDomain.max]}
+                tickFormatter={(v: number) => (Number.isFinite(v) ? v.toFixed(2) : "")}
+              />
               <Tooltip contentStyle={{ background: "#111827", border: "1px solid #374151", color: "#e5e7eb" }} />
               {dragBaselinePct && (
                 <Area
@@ -501,7 +557,7 @@ export default function DatafeedPage() {
                 />
               )}
               <Area type="monotone" dataKey="RatePct" stroke="#f59e0b" strokeWidth={isCurveActive ? 3 : 2} fill="url(#rateFill)" fillOpacity={isCurveActive ? 0.35 : 0.25} isAnimationActive={false} />
-              <Scatter data={dataPct} fill="#f59e0b" shape={(p: any) => <PointHandle {...p} />} isAnimationActive={false} />
+              <Scatter data={dataPct} fill="#f59e0b" shape={(p: any) => <PointHandle {...p} />} isAnimationActive={false} onMouseDown={handlePointMouseDown} />
             </AreaChart>
           </ResponsiveContainer>
         </div>
@@ -517,6 +573,10 @@ export default function DatafeedPage() {
             disableColumnMenu
             hideFooter
             density="compact"
+            editMode="cell"
+            processRowUpdate={processRowUpdate}
+            onCellEditStart={onEditStart}
+            onCellEditStop={onEditStop}
             sx={{
               color: "#e5e7eb",
               border: 0,
@@ -682,6 +742,8 @@ export default function DatafeedPage() {
         requestApproximation={requestApproximation}
         clearApproximation={clearApproximation}
         hasCurveData={data.length > 0}
+        onOpenSwap={setSwapSnapshot}
+        onRiskMapUpdate={updateRiskMap}
       />
     </div>
   );
@@ -691,15 +753,12 @@ export default function DatafeedPage() {
       <VerticalSplit top={Top} bottom={Bottom} initialTopHeight={520} />
       {swapId && (
         <Modal title={`Swap ${swapId}`}>
-          <div className="space-y-3 text-sm text-gray-200">
-            <div>
-              Swap ID: <span className="font-mono text-blue-300">{swapId}</span>
-            </div>
-            <div className="text-gray-400">Detail view coming next. This modal preserves the running datafeed and calibration workers.</div>
-            <div className="pt-2">
-              <button onClick={closeSwap} className="px-3 py-1.5 rounded-md border border-gray-700 bg-gray-800 text-gray-200 hover:bg-gray-700">Close</button>
-            </div>
-          </div>
+          <SwapModalShell
+            swapId={swapId}
+            onClose={closeSwap}
+            swapRow={swapSnapshot}
+            riskRow={riskMapState[swapId] || null}
+          />
         </Modal>
       )}
     </div>
@@ -712,9 +771,11 @@ type BlotterGridProps = {
   requestApproximation: (swaps: any[], risk: any[]) => void;
   clearApproximation: () => void;
   hasCurveData: boolean;
+  onOpenSwap?: (row: BlotterRow) => void;
+  onRiskMapUpdate: (map: Record<string, any>) => void;
 };
 
-function BlotterGrid({ approxReady, approxOverrides, requestApproximation, clearApproximation, hasCurveData }: BlotterGridProps) {
+function BlotterGrid({ approxReady, approxOverrides, requestApproximation, clearApproximation, hasCurveData, onOpenSwap, onRiskMapUpdate }: BlotterGridProps) {
   const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 });
   const fmtDate = React.useCallback((v: any) => {
     if (!v) return "";
@@ -731,11 +792,11 @@ function BlotterGrid({ approxReady, approxOverrides, requestApproximation, clear
     const cols: GridColDef<BlotterRow>[] = (apiCols.length ? apiCols : [{ field: generatedIdField || "ID" }])
       .filter((c) => c.field !== "RowType")
       .map((c) => {
-        const base: GridColDef<BlotterRow> = {
-          field: c.field,
-          headerName: c.field,
-          flex: 1,
-        };
+    const base: GridColDef<BlotterRow> = {
+      field: c.field,
+      headerName: c.field,
+      flex: 1,
+    };
         const t = (c.type || "").toLowerCase();
         if (t.includes("int") || t.includes("decimal") || t.includes("double") || t.includes("float") || t.includes("real") || t.includes("bigint")) {
           base.type = "number";
@@ -804,7 +865,7 @@ function BlotterGrid({ approxReady, approxOverrides, requestApproximation, clear
       cols[idx] = {
         ...cols[idx],
         headerName: generatedIdField || cols[idx].headerName,
-        renderCell: (params) => <SwapLink id={params.value} />,
+        renderCell: (params) => <SwapLink id={params.value} row={params.row as BlotterRow} onOpenSwap={onOpenSwap} />,
         width: 180,
       } as GridColDef<BlotterRow>;
     }
@@ -856,6 +917,12 @@ function BlotterGrid({ approxReady, approxOverrides, requestApproximation, clear
       const data = await res.json();
       const riskRows: any[] = Array.isArray(data.rows) ? data.rows : [];
       const sanitizedRisk = riskRows.map((row) => sanitizeRecord(row));
+      const riskMapLocal: Record<string, any> = Object.create(null);
+      sanitizedRisk.forEach((r: any) => {
+        const key = r?.ID ?? r?.id;
+        if (key != null) riskMapLocal[String(key)] = r;
+      });
+      onRiskMapUpdate(riskMapLocal);
       const swapsPayload = baseRows.map((row) => ({
         ID: row.ID ?? row.id,
         id: row.id,
@@ -872,18 +939,25 @@ function BlotterGrid({ approxReady, approxOverrides, requestApproximation, clear
 
   const fetchData = React.useCallback(async () => {
     setLoading(true);
-    const sortField = sortModel[0]?.field ?? generatedIdField ?? "id";
-    const sortOrder = (sortModel[0]?.sort ?? "asc") as "asc" | "desc";
-    const url = `/api/swaps?page=${paginationModel.page}&pageSize=${paginationModel.pageSize}&sortField=${sortField}&sortOrder=${sortOrder}`;
-    const res = await fetch(url);
-    const data = await res.json();
-    const baseRows: BlotterRow[] = data.rows || [];
-    setRows(baseRows);
-    setRowCount(data.total || 0);
-    clearApproximation();
-    requestApprox(baseRows).catch((err) => console.error("[blotter] approx", err));
-    setLoading(false);
-  }, [paginationModel.page, paginationModel.pageSize, sortModel, clearApproximation, requestApprox]);
+    try {
+      const sortField = sortModel[0]?.field ?? generatedIdField ?? "id";
+      const sortOrder = (sortModel[0]?.sort ?? "asc") as "asc" | "desc";
+      const url = `/api/swaps?page=${paginationModel.page}&pageSize=${paginationModel.pageSize}&sortField=${sortField}&sortOrder=${sortOrder}`;
+      const res = await fetch(url);
+      const data = await res.json();
+      const baseRows: BlotterRow[] = data.rows || [];
+      setRows(baseRows);
+      setRowCount(data.total || 0);
+      clearApproximation();
+      onRiskMapUpdate({});
+      requestApprox(baseRows).catch((err) => console.error("[blotter] approx", err));
+    } catch (err) {
+      console.error("[blotter] fetch", err);
+      setError(String(err));
+    } finally {
+      setLoading(false);
+    }
+  }, [paginationModel.page, paginationModel.pageSize, sortModel, clearApproximation, requestApprox, onRiskMapUpdate]);
 
   React.useEffect(() => {
     fetchData();
@@ -982,7 +1056,7 @@ function BlotterGrid({ approxReady, approxOverrides, requestApproximation, clear
   );
 }
 
-function SwapLink({ id }: { id: string | number }) {
+function SwapLink({ id, row, onOpenSwap }: { id: string | number; row?: BlotterRow; onOpenSwap?: (row: BlotterRow) => void }) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -992,6 +1066,7 @@ function SwapLink({ id }: { id: string | number }) {
     e.stopPropagation();
     // @ts-ignore — hint MUI Grid that the event is handled
     (e as any).defaultMuiPrevented = true;
+    if (row && onOpenSwap) onOpenSwap(row);
     const sp = new URLSearchParams(searchParams?.toString() || "");
     sp.set("swap", String(id));
     router.push(`${pathname}?${sp.toString()}`, { scroll: false });
@@ -1000,5 +1075,182 @@ function SwapLink({ id }: { id: string | number }) {
     <a href={`/swap/${id}`} onClick={onClick} className="text-blue-400 underline hover:text-blue-300">
       {String(id)}
     </a>
+  );
+}
+
+type SwapModalShellProps = {
+  swapId: string;
+  onClose: () => void;
+  swapRow: BlotterRow | null;
+  riskRow: any;
+};
+
+function SwapModalShell({ swapId, onClose, swapRow, riskRow: _riskRow }: SwapModalShellProps) {
+  const [tab, setTab] = React.useState<"pricing" | "cashflows" | "fixings" | "risk">("pricing");
+  React.useEffect(() => { setTab("pricing"); }, [swapId]);
+
+  const counterparty = (swapRow as any)?.CounterpartyID ?? "—";
+  const notional = swapRow?.Notional == null ? null : Math.abs(Number(swapRow.Notional));
+  const fmtUsd = (v: number | null | undefined) => v == null ? "—" : new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 }).format(v).replace("$", "$ ");
+
+  const InfoRow = ({ label, value }: { label: string; value: React.ReactNode }) => (
+    <div className="flex flex-col">
+      <span className="text-xs uppercase tracking-wide text-gray-500">{label}</span>
+      <span className="text-sm text-gray-100">{value}</span>
+    </div>
+  );
+
+  const TabButton = ({ id, label }: { id: "pricing" | "cashflows" | "fixings" | "risk"; label: string }) => (
+    <button
+      onClick={() => setTab(id)}
+      className={`px-3 py-2 text-sm rounded-md border ${tab === id ? "border-amber-400 text-amber-300 bg-gray-800" : "border-gray-800 text-gray-400 hover:text-gray-200"}`}
+    >
+      {label}
+    </button>
+  );
+
+  const riskRow = React.useMemo(() => {
+    if (!_riskRow) return null;
+    const out: Record<string, any> = {};
+    Object.entries(_riskRow).forEach(([k, v]) => {
+      out[k] = typeof v === "bigint" ? Number(v) : v;
+    });
+    return out;
+  }, [_riskRow]);
+
+  const riskGrid = React.useMemo(() => {
+    if (!riskRow) return { cols: [], rows: [] };
+    const cols: GridColDef<any>[] = Object.keys(riskRow).map((key) => ({
+      field: key,
+      headerName: key,
+      width: 110,
+      type: typeof riskRow[key] === "number" ? "number" : undefined,
+    }));
+    const rows = [{ id: 0, ...riskRow }];
+    return { cols, rows };
+  }, [riskRow]);
+
+  return (
+    <div className="space-y-4 text-sm text-gray-200">
+      <div className="flex items-start justify-between gap-4">
+        <div className="space-y-2">
+          <div className="flex items-center gap-3">
+            <div className="text-lg font-semibold">Swap {swapId}</div>
+            <span className="text-xs rounded-full bg-gray-800 border border-gray-700 px-2 py-0.5 text-gray-300">live</span>
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+            <InfoRow label="Counterparty" value={counterparty} />
+            <InfoRow label="Notional" value={fmtUsd(notional)} />
+            <InfoRow label="Counterparty Exposure" value="— (from main_agg / risk_agg)" />
+            <InfoRow label="Ticking NPV" value="— bp (placeholder)" />
+            <InfoRow label="Ticking ParSpread" value="— bp (placeholder)" />
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <button className="px-3 py-1.5 rounded-md border border-gray-700 bg-gray-800 text-gray-100 hover:bg-gray-700">Full reval</button>
+          <button onClick={onClose} className="px-3 py-1.5 rounded-md border border-gray-700 bg-gray-900 text-gray-300 hover:bg-gray-800">Close</button>
+        </div>
+      </div>
+
+      <div className="flex items-center gap-2">
+        <TabButton id="pricing" label="Pricing summary" />
+        <TabButton id="cashflows" label="Cashflows" />
+        <TabButton id="fixings" label="Fixings" />
+        <TabButton id="risk" label="Risk" />
+      </div>
+
+      <div className="border border-gray-800 rounded-md bg-gray-900 p-4 min-h-[260px]">
+        {tab === "pricing" && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div className="border border-gray-800 rounded-md p-3 bg-gray-950">
+              <div className="text-xs uppercase tracking-wide text-gray-500 mb-1">PV summary</div>
+              <div className="text-gray-300">Pricing metrics placeholder (PV, DV01, clean/dirty, accrual).</div>
+            </div>
+            <div className="border border-gray-800 rounded-md p-3 bg-gray-950">
+              <div className="text-xs uppercase tracking-wide text-gray-500 mb-1">Rates</div>
+              <div className="text-gray-300">Par rate, fixed rate, pay/receive leg info placeholder.</div>
+            </div>
+            <div className="border border-gray-800 rounded-md p-3 bg-gray-950">
+              <div className="text-xs uppercase tracking-wide text-gray-500 mb-1">Valuation date</div>
+              <div className="text-gray-300">Valuation date / calendar placeholders.</div>
+            </div>
+          </div>
+        )}
+        {tab === "cashflows" && (
+          <div className="space-y-2">
+            <div className="text-gray-400 text-xs">Cashflows table placeholder</div>
+            <div className="overflow-auto">
+              <table className="min-w-full text-xs">
+                <thead className="text-gray-400">
+                  <tr>
+                    <th className="text-left p-2">Date</th>
+                    <th className="text-left p-2">Leg</th>
+                    <th className="text-left p-2">Amount</th>
+                    <th className="text-left p-2">Index</th>
+                  </tr>
+                </thead>
+                <tbody className="text-gray-200">
+                  <tr className="border-t border-gray-800">
+                    <td className="p-2">—</td>
+                    <td className="p-2">—</td>
+                    <td className="p-2">—</td>
+                    <td className="p-2">—</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+        {tab === "fixings" && (
+          <div className="space-y-2">
+            <div className="text-gray-400 text-xs">Fixings (from new fixings table) placeholder</div>
+            <div className="overflow-auto">
+              <table className="min-w-full text-xs">
+                <thead className="text-gray-400">
+                  <tr>
+                    <th className="text-left p-2">Date</th>
+                    <th className="text-left p-2">Index</th>
+                    <th className="text-left p-2">Value</th>
+                  </tr>
+                </thead>
+                <tbody className="text-gray-200">
+                  <tr className="border-t border-gray-800">
+                    <td className="p-2">—</td>
+                    <td className="p-2">—</td>
+                    <td className="p-2">—</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+        {tab === "risk" && (
+          <div className="space-y-2">
+            <div className="text-gray-400 text-xs">Risk (raw buckets from risk_tbl)</div>
+            {riskGrid.rows.length ? (
+              <div className="h-80">
+                <DataGrid
+                  rows={riskGrid.rows}
+                  columns={riskGrid.cols}
+                  disableColumnMenu
+                  hideFooter
+                  density="compact"
+                  sx={{
+                    color: "#e5e7eb",
+                    border: 0,
+                    "& .MuiDataGrid-columnHeaders": { backgroundColor: "#0b1220" },
+                    "& .MuiDataGrid-row": { backgroundColor: "#111827" },
+                    "& .MuiDataGrid-cell": { borderColor: "#1f2937" },
+                    "& .MuiDataGrid-columnSeparator": { display: "none" },
+                  }}
+                />
+              </div>
+            ) : (
+              <div className="text-gray-500 text-sm">No risk data loaded for this swap yet.</div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
   );
 }

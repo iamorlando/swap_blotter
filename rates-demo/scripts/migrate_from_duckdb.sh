@@ -61,12 +61,14 @@ COPY (SELECT * FROM main_tbl) TO 'main_tbl.csv' (HEADER, DELIMITER ',');
 COPY (SELECT * FROM risk_tbl) TO 'risk_tbl.csv' (HEADER, DELIMITER ',');
 COPY (SELECT * FROM main_agg) TO 'main_agg.csv' (HEADER, DELIMITER ',');
 COPY (SELECT * FROM risk_agg) TO 'risk_agg.csv' (HEADER, DELIMITER ',');
+COPY (SELECT * FROM fixings) TO 'fixings.csv' (HEADER, DELIMITER ',');
 SQL
 
   mv -f main_tbl.csv "$OUT_DIR/" || true
   mv -f risk_tbl.csv "$OUT_DIR/" || true
   mv -f main_agg.csv "$OUT_DIR/" || true
   mv -f risk_agg.csv "$OUT_DIR/" || true
+  mv -f fixings.csv "$OUT_DIR/" || true
 fi
 
 echo "==> Creating tables in Postgres via Prisma (db push)"
@@ -74,10 +76,11 @@ echo "==> Creating tables in Postgres via Prisma (db push)"
 
 if [ "$USE_PSQL" -eq 1 ]; then
   echo "==> Loading CSVs into Postgres using psql COPY"
-  psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "COPY \"main_tbl\" (\"RowType\",\"ID\",\"CounterpartyID\",\"StartDate\",\"TerminationDate\",\"FixedRate\",\"NPV\",\"ParRate\",\"ParSpread\",\"SwapType\",\"PayFixed\") FROM '$OUT_DIR/main_tbl.csv' WITH (FORMAT csv, HEADER true)" 
+  psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "COPY \"main_tbl\" (\"RowType\",\"ID\",\"CounterpartyID\",\"StartDate\",\"TerminationDate\",\"FixedRate\",\"NPV\",\"ParRate\",\"ParSpread\",\"Notional\",\"SwapType\",\"PayFixed\") FROM '$OUT_DIR/main_tbl.csv' WITH (FORMAT csv, HEADER true)" 
   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "COPY \"risk_tbl\" (\"ID\",\"1W\",\"2W\",\"3W\",\"1M\",\"2M\",\"3M\",\"4M\",\"5M\",\"6M\",\"7M\",\"8M\",\"9M\",\"10M\",\"11M\",\"12M\",\"18M\",\"2Y\",\"3Y\",\"4Y\",\"5Y\",\"6Y\",\"7Y\",\"8Y\",\"9Y\",\"10Y\",\"12Y\",\"15Y\",\"20Y\",\"25Y\",\"30Y\",\"40Y\",\"R\",\"z\",\"RowType\") FROM '$OUT_DIR/risk_tbl.csv' WITH (FORMAT csv, HEADER true)"
-  psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "COPY \"main_agg\" (\"RowType\",\"ID\",\"NPV\") FROM '$OUT_DIR/main_agg.csv' WITH (FORMAT csv, HEADER true)"
+  psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "COPY \"main_agg\" (\"RowType\",\"ID\",\"NPV\",\"Notional\") FROM '$OUT_DIR/main_agg.csv' WITH (FORMAT csv, HEADER true)"
   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "COPY \"risk_agg\" (\"RowType\",\"ID\",\"1W\",\"2W\",\"3W\",\"1M\",\"2M\",\"3M\",\"4M\",\"5M\",\"6M\",\"7M\",\"8M\",\"9M\",\"10M\",\"11M\",\"12M\",\"18M\",\"2Y\",\"3Y\",\"4Y\",\"5Y\",\"6Y\",\"7Y\",\"8Y\",\"9Y\",\"10Y\",\"12Y\",\"15Y\",\"20Y\",\"25Y\",\"30Y\",\"40Y\",\"R\",\"z\") FROM '$OUT_DIR/risk_agg.csv' WITH (FORMAT csv, HEADER true)"
+  psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "COPY \"fixings\" (\"date\",\"value\",\"index\") FROM '$OUT_DIR/fixings.csv' WITH (FORMAT csv, HEADER true)"
 else
   echo "==> Loading via Prisma (no psql)"
   (cd "$ROOT_DIR" && npx tsx scripts/load_csv_to_postgres.ts)
@@ -85,7 +88,7 @@ fi
 
 echo "==> Done. Row counts (if psql available):"
 if [ "$USE_PSQL" -eq 1 ]; then
-  psql "$DATABASE_URL" -c "SELECT 'main_tbl' AS table, COUNT(*) FROM \"main_tbl\" UNION ALL SELECT 'risk_tbl', COUNT(*) FROM \"risk_tbl\" UNION ALL SELECT 'main_agg', COUNT(*) FROM \"main_agg\" UNION ALL SELECT 'risk_agg', COUNT(*) FROM \"risk_agg\";" || true
+  psql "$DATABASE_URL" -c "SELECT 'main_tbl' AS table, COUNT(*) FROM \"main_tbl\" UNION ALL SELECT 'risk_tbl', COUNT(*) FROM \"risk_tbl\" UNION ALL SELECT 'main_agg', COUNT(*) FROM \"main_agg\" UNION ALL SELECT 'risk_agg', COUNT(*) FROM \"risk_agg\" UNION ALL SELECT 'fixings', COUNT(*) FROM \"fixings\";" || true
 fi
 
 echo "==> Start the app: npm run dev"

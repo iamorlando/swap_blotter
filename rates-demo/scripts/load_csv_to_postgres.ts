@@ -1,6 +1,6 @@
 /*
   Loads data exported from DuckDB into Postgres via Prisma, without psql.
-  Expects files in .migrate_csv/: main_tbl.csv, risk_tbl.csv, main_agg.csv, risk_agg.csv
+  Expects files in .migrate_csv/: main_tbl.csv, risk_tbl.csv, main_agg.csv, risk_agg.csv, fixings.csv
 */
 import fs from 'fs';
 import path from 'path';
@@ -64,7 +64,8 @@ async function loadMainTbl(dir: string) {
     FixedRate: toFloat(r['FixedRate']) ?? undefined,
     NPV: toFloat(r['NPV']) ?? undefined,
     ParRate: toFloat(r['ParRate']) ?? undefined,
-    // ParSpread: toFloat(r['ParSpread']) ?? undefined,
+    ParSpread: toFloat(r['ParSpread']) ?? undefined,
+    Notional: r['Notional'] == null ? undefined : BigInt(r['Notional']),
     SwapType: r['SwapType'] ?? undefined,
     PayFixed: toBool(r['PayFixed']) ?? undefined,
   }));
@@ -100,6 +101,7 @@ async function loadMainAgg(dir: string) {
     RowType: r['RowType']!,
     ID: r['ID']!,
     NPV: toFloat(r['NPV']) ?? undefined,
+    Notional: r['Notional'] == null ? undefined : BigInt(r['Notional']),
   }));
   await (prisma as any).mainAgg.createMany({ data, skipDuplicates: true });
   console.log(`main_agg: inserted ${data.length}`);
@@ -121,6 +123,21 @@ async function loadRiskAgg(dir: string) {
   console.log(`risk_agg: inserted ${data.length}`);
 }
 
+async function loadFixings(dir: string) {
+  const fp = path.join(dir, 'fixings.csv');
+  if (!fs.existsSync(fp)) { console.warn('skip: fixings.csv not found'); return; }
+  const rows = parseCSV(fp);
+  if (!rows.length) { console.log('fixings: no rows'); return; }
+  const data = rows.map(r => ({
+    indexName: r['index'] ?? undefined,
+    date: toDate(r['date']) ?? undefined,
+    value: toFloat(r['value']) ?? undefined,
+  })).filter(r => r.indexName && r.date) as any[];
+  if (!data.length) { console.log('fixings: no valid rows'); return; }
+  await (prisma as any).fixing.createMany({ data, skipDuplicates: true });
+  console.log(`fixings: inserted ${data.length}`);
+}
+
 async function main() {
   const root = path.resolve(__dirname, '..');
   const outDir = path.join(root, '.migrate_csv');
@@ -128,6 +145,7 @@ async function main() {
   await loadRiskTbl(outDir);
   await loadMainAgg(outDir);
   await loadRiskAgg(outDir);
+  await loadFixings(outDir);
 }
 
 main().finally(() => prisma.$disconnect());
