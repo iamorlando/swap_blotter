@@ -74,7 +74,6 @@ function handleCurve(rows: Array<{ Term: string; Rate: number }>) {
     const arr = resultProxy.toJs({ create_proxies: false });
     const plain = JSON.parse(JSON.stringify(arr));
     ctx.postMessage({ type: "md", rows: plain });
-    log(`md rows=${Array.isArray(plain) ? plain.length : 0}`);
   } catch (e) {
     ctx.postMessage({ type: "error", error: String(e) });
   } finally {
@@ -85,7 +84,14 @@ function handleCurve(rows: Array<{ Term: string; Rate: number }>) {
 }
 
 function handleSwaps(swaps: any[], risk: any[]) {
-  latestSwaps = swaps && swaps.length ? swaps : null;
+  // no need to get entire swap, just id and NPV
+  latestSwaps = swaps && swaps.length ? swaps.map(s=>({
+    ID: s.ID,
+    NPV: s.NPV,
+    FixedRate: s.FixedRate,
+    ParRate: s.ParRate,
+  })) : null;
+
   latestRisk = risk && risk.length ? risk : null;
   tryApproximate();
 }
@@ -106,8 +112,8 @@ function tryApproximate() {
     resultProxy = approxHelper(swapsPy, riskPy, curvePy);
     const arr = resultProxy.toJs({ create_proxies: false });
     const plain = JSON.parse(JSON.stringify(arr));
+    log("result json is: " + JSON.stringify(plain));
     ctx.postMessage({ type: "approx", rows: plain });
-    log(`approx rows=${Array.isArray(plain) ? plain.length : 0}`);
   } catch (e) {
     ctx.postMessage({ type: "error", error: String(e) });
   } finally {
