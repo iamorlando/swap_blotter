@@ -27,11 +27,7 @@ export default function DatafeedPage() {
     router.replace(qs ? `${pathname}?${qs}` : `${pathname}`, { scroll: false });
   }, [router, pathname, searchParams]);
   const workerRef = React.useRef<Worker | null>(null);
-  const approxWorkerRef = React.useRef<Worker | null>(null);
-  const approxReadyRef = React.useRef(false);
-  const hasSeededRef = React.useRef(false);
-  const pendingSeedRef = React.useRef<{ swaps: BlotterRow[]; risk: any[] } | null>(null);
-  const lastCurveRef = React.useRef<Array<{ Term: string; Rate: number }>>([]);
+  const randomWorkerRef = React.useRef<Worker | null>(null);
   const [data, setData] = React.useState<Array<{ Term: string; Rate: number }>>([]);
   const [ready, setReady] = React.useState(false);
   const [auto, setAuto] = React.useState(true);
@@ -40,7 +36,6 @@ export default function DatafeedPage() {
   const [moveDir, setMoveDir] = React.useState<"up" | "down" | "flat" | null>(null);
   const [seq, setSeq] = React.useState(0);
   const [fps, setFps] = React.useState(1); // ticks per second
-  const [approxSwaps, setApproxSwaps] = React.useState<any[] | null>(null);
 
   React.useEffect(() => {
     const w = new Worker(new URL("../../workers/datafeed.worker.ts", import.meta.url));
@@ -57,12 +52,6 @@ export default function DatafeedPage() {
       } else if (msg.type === "data") {
         console.log("[datafeed worker] tick", msg.data?.length);
         setData(msg.data as Array<{ Term: string; Rate: number }>);
-        lastCurveRef.current = msg.data as Array<{ Term: string; Rate: number }>;
-        if (approxWorkerRef.current && hasSeededRef.current) {
-          approxWorkerRef.current.postMessage({ type: "curve", curve: msg.data });
-        } else {
-          console.log("[approx] curve skipped (not seeded yet)");
-        }
         if (msg.movedTerm) {
           setMovedTerm(msg.movedTerm as string);
           setMoveDir((msg.dir as any) || "flat");
@@ -82,36 +71,24 @@ export default function DatafeedPage() {
   }, []);
 
   React.useEffect(() => {
-    const w = new Worker(new URL("../../workers/swapApprox.worker.ts", import.meta.url));
-    approxWorkerRef.current = w;
+    const w = new Worker(new URL("../../workers/random.worker.ts", import.meta.url));
+    randomWorkerRef.current = w;
     w.onmessage = (e: MessageEvent) => {
       const msg = e.data || {};
       if (msg.type === "ready") {
-        console.log("[approx worker] ready");
-        approxReadyRef.current = true;
-        if (pendingSeedRef.current && approxWorkerRef.current) {
-          const seed = pendingSeedRef.current;
-          console.log("[approx] flushing pending seed", seed.swaps.length, seed.risk.length);
-          approxWorkerRef.current.postMessage({ type: "setSwapsRisk", ...seed });
-          hasSeededRef.current = true;
-          if (lastCurveRef.current.length) {
-            approxWorkerRef.current.postMessage({ type: "curve", curve: lastCurveRef.current });
-          }
-          pendingSeedRef.current = null;
-        }
-      } else if (msg.type === "approx") {
-        console.log("[approx worker] approx rows", msg.swaps?.length);
-        setApproxSwaps(msg.swaps as any[]);
-      } else if (msg.type === "error") {
-        console.error("[approx worker] error", msg.error);
+        console.log("[random worker] ready");
+      } else if (msg.type === "random") {
+        console.log("[random worker] value", msg.value);
       } else if (msg.type === "log") {
-        console.log(`[approx worker] ${msg.message}`);
+        console.log(`[random worker] ${msg.message}`);
+      } else if (msg.type === "error") {
+        console.error("[random worker] error", msg.error);
       }
     };
-    w.postMessage({ type: "init", baseUrl: "https://cdn.jsdelivr.net/pyodide/v0.26.1/full/", datafeedUrl: "/py/datafeed.py", approxUrl: "/py/swap_approximation.py" });
+    w.postMessage({ type: "init", baseUrl: "https://cdn.jsdelivr.net/pyodide/v0.26.1/full/", randomUrl: "/py/random.py" });
     return () => {
       w.terminate();
-      approxWorkerRef.current = null;
+      randomWorkerRef.current = null;
     };
   }, []);
 
@@ -451,14 +428,7 @@ export default function DatafeedPage() {
   const Bottom = (
     <div className="p-4 space-y-2">
       <div className="text-sm text-gray-300">Blotter</div>
-      <BlotterGrid
-        approxWorkerRef={approxWorkerRef}
-        approxSwaps={approxSwaps}
-        approxReadyRef={approxReadyRef}
-        hasSeededRef={hasSeededRef}
-        pendingSeedRef={pendingSeedRef}
-        lastCurveRef={lastCurveRef}
-      />
+      <BlotterGrid />
     </div>
   );
 
@@ -482,21 +452,7 @@ export default function DatafeedPage() {
   );
 }
 
-function BlotterGrid({
-  approxWorkerRef,
-  approxSwaps,
-  approxReadyRef,
-  hasSeededRef,
-  pendingSeedRef,
-  lastCurveRef,
-}: {
-  approxWorkerRef: React.MutableRefObject<Worker | null>;
-  approxSwaps: any[] | null;
-  approxReadyRef: React.MutableRefObject<boolean>;
-  hasSeededRef: React.MutableRefObject<boolean>;
-  pendingSeedRef: React.MutableRefObject<{ swaps: BlotterRow[]; risk: any[] } | null>;
-  lastCurveRef: React.MutableRefObject<Array<{ Term: string; Rate: number }>>;
-}) {
+function BlotterGrid() {
   const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 });
   const fmtDate = React.useCallback((v: any) => {
     if (!v) return "";
@@ -594,32 +550,8 @@ function BlotterGrid({
     const baseRows: BlotterRow[] = data.rows || [];
     setRows(baseRows);
     setRowCount(data.total || 0);
-    try {
-      const ids = baseRows.map((r) => r.ID ?? r.id).filter((v) => v != null);
-      if (ids.length && approxWorkerRef.current) {
-        const riskUrl = `/api/risk-batch?ids=${encodeURIComponent(ids.join(","))}`;
-        console.log("[blotter] fetching risk", riskUrl);
-        const riskRes = await fetch(riskUrl);
-        const riskJson = await riskRes.json();
-        const riskRows = riskJson.rows || [];
-        console.log("[blotter] risk rows", riskRows.length);
-        pendingSeedRef.current = { swaps: baseRows, risk: riskRows };
-        if (approxReadyRef.current && approxWorkerRef.current) {
-          approxWorkerRef.current.postMessage({ type: "setSwapsRisk", swaps: baseRows, risk: riskRows });
-          hasSeededRef.current = true;
-          if (lastCurveRef.current.length) {
-            approxWorkerRef.current.postMessage({ type: "curve", curve: lastCurveRef.current });
-          }
-          pendingSeedRef.current = null;
-        } else {
-          console.log("[approx] worker not ready, seed queued");
-        }
-      }
-    } catch (e) {
-      console.error("[blotter] risk fetch", e);
-    }
     setLoading(false);
-  }, [paginationModel.page, paginationModel.pageSize, sortModel, approxWorkerRef]);
+  }, [paginationModel.page, paginationModel.pageSize, sortModel]);
 
   React.useEffect(() => {
     fetchData();
@@ -631,28 +563,6 @@ function BlotterGrid({
       setSortModel([{ field: columns[0]?.field ?? (generatedIdField as string) ?? "ID", sort: "asc" }]);
     }
   }, [columns]);
-
-  React.useEffect(() => {
-    if (!approxSwaps || !approxSwaps.length) return;
-    console.log("[blotter] applying approx", approxSwaps.length, approxSwaps[0]);
-    setRows((prev) => {
-      if (!prev.length) return prev;
-      const byId: Record<string, any> = Object.create(null);
-      for (const r of approxSwaps) {
-        const key = String(r.ID ?? r.id ?? "");
-        if (key) byId[key] = r;
-      }
-      return prev.map((row) => {
-        const key = String(row.ID ?? row.id ?? "");
-        const src = byId[key];
-        if (!src) return row;
-        const next: any = { ...row };
-        if (src.NPV != null) next.NPV = src.NPV;
-        if (src.ParRate != null) next.ParRate = src.ParRate;
-        return next;
-      });
-    });
-  }, [approxSwaps]);
 
   return (
     <div className="h-[420px] border border-gray-800 rounded-md bg-gray-900 flex flex-col">

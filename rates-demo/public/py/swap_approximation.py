@@ -1,8 +1,9 @@
 import pandas as pd
 from pandas import DataFrame
-from .datafeed import _source
+from .datafeed import _source, get_updated_datafeed
 
-
+def get_data_and_return_it(data:DataFrame)->DataFrame:
+    return data
 def get_md_changes(data: DataFrame) -> DataFrame:
     global _source
     cur = data.set_index("Term")["Rate"].astype("float64")
