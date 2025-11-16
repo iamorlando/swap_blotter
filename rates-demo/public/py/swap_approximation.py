@@ -1,8 +1,10 @@
 import pandas as pd
 from pandas import DataFrame
-from .datafeed import _source, get_updated_datafeed
+from .datafeed import _source
 
-def get_data_and_return_it(data:DataFrame)->DataFrame:
+def get_data_and_return_it(data: DataFrame) -> DataFrame:
+    preview = data.head().to_dict(orient="records")
+    print("get_data_and_return_it preview:", preview)
     return data
 def get_md_changes(data: DataFrame) -> DataFrame:
     global _source

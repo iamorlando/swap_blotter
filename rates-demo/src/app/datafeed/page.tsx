@@ -27,7 +27,6 @@ export default function DatafeedPage() {
     router.replace(qs ? `${pathname}?${qs}` : `${pathname}`, { scroll: false });
   }, [router, pathname, searchParams]);
   const workerRef = React.useRef<Worker | null>(null);
-  const randomWorkerRef = React.useRef<Worker | null>(null);
   const [data, setData] = React.useState<Array<{ Term: string; Rate: number }>>([]);
   const [ready, setReady] = React.useState(false);
   const [auto, setAuto] = React.useState(true);
@@ -67,28 +66,6 @@ export default function DatafeedPage() {
       if (auto) w.postMessage({ type: "stopAuto" });
       w.terminate();
       workerRef.current = null;
-    };
-  }, []);
-
-  React.useEffect(() => {
-    const w = new Worker(new URL("../../workers/random.worker.ts", import.meta.url));
-    randomWorkerRef.current = w;
-    w.onmessage = (e: MessageEvent) => {
-      const msg = e.data || {};
-      if (msg.type === "ready") {
-        console.log("[random worker] ready");
-      } else if (msg.type === "random") {
-        console.log("[random worker] value", msg.value);
-      } else if (msg.type === "log") {
-        console.log(`[random worker] ${msg.message}`);
-      } else if (msg.type === "error") {
-        console.error("[random worker] error", msg.error);
-      }
-    };
-    w.postMessage({ type: "init", baseUrl: "https://cdn.jsdelivr.net/pyodide/v0.26.1/full/", randomUrl: "/py/random.py" });
-    return () => {
-      w.terminate();
-      randomWorkerRef.current = null;
     };
   }, []);
 
