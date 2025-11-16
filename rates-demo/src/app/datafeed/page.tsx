@@ -1120,14 +1120,21 @@ function SwapModalShell({ swapId, onClose, swapRow, riskRow: _riskRow }: SwapMod
 
   const riskGrid = React.useMemo(() => {
     if (!riskRow) return { cols: [], rows: [] };
-    const cols: GridColDef<any>[] = Object.keys(riskRow).map((key) => ({
-      field: key,
-      headerName: key,
-      width: 110,
-      type: typeof riskRow[key] === "number" ? "number" : undefined,
-    }));
-    const rows = [{ id: 0, ...riskRow }];
-    return { cols, rows };
+    const entries: Array<{ term: string; exposure: number }> = [];
+    Object.entries(riskRow).forEach(([key, val]) => {
+      if (key === "R" || key === "z" || key.toLowerCase() === "rowtype" || key.toLowerCase() === "id") return;
+      const num = typeof val === "number" ? val : Number(val);
+      if (!Number.isFinite(num)) return;
+      const term = key.startsWith("c_") ? key.slice(2) : key;
+      entries.push({ term, exposure: num });
+    });
+    const cols: GridColDef<any>[] = [
+      { field: "term", headerName: "Term", width: 120 },
+      { field: "exposure", headerName: "Exposure", type: "number", width: 140 },
+    ];
+    const rows = entries.map((e, idx) => ({ id: idx, ...e }));
+    const dvo1 = entries.reduce((acc, e) => acc + (Number.isFinite(e.exposure) ? e.exposure : 0), 0);
+    return { cols, rows, dvo1 };
   }, [riskRow]);
 
   return (
@@ -1226,7 +1233,14 @@ function SwapModalShell({ swapId, onClose, swapRow, riskRow: _riskRow }: SwapMod
         )}
         {tab === "risk" && (
           <div className="space-y-2">
-            <div className="text-gray-400 text-xs">Risk (raw buckets from risk_tbl)</div>
+            <div className="flex items-center justify-between">
+              <div className="text-gray-400 text-xs">Risk (DV01-style buckets)</div>
+              {riskGrid.rows.length ? (
+                <div className="text-sm text-gray-200">
+                  dvo1: <span className="font-mono text-amber-300">{riskGrid.dvo1.toFixed(2)}</span>
+                </div>
+              ) : null}
+            </div>
             {riskGrid.rows.length ? (
               <div className="h-80">
                 <DataGrid
