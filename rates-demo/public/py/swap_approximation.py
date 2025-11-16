@@ -36,25 +36,15 @@ def aproximate_swap_quotes(swaps_df: DataFrame, risk_df: DataFrame, new_data: Da
             risk_df[col] = 0.0
     # Ensure risk vector rows align to swap ids
     risk_df = risk_df.reindex(swaps_df["ID"]).fillna(0.0)
-    npvs = swaps_df["NPV"].astype("float64").to_numpy()
-    risk = risk_df[[f'c_{i}' for i in list(term_cols)]].astype("float64").to_numpy()
+    npvs = swaps_df["NPV"].to_numpy(dtype="float64")
+    risk = risk_df[[f'c_{i}' for i in list(term_cols)]].to_numpy(dtype="float64")
     base_curve = _source.reset_index()
     md_changes_df = get_md_changes(new_data, base_curve)
-    # return pd.DataFrame(data=term_cols, columns=["Term"])  # debug
     changes = md_changes_df.loc[term_cols, "Change"].to_numpy(dtype="float64")
-    # return pd.DataFrame(data=changes, columns=["Term"])  # debug
-    new_npvs = npvs + (risk @ changes)
-    return pd.DataFrame({
-        "ID": swaps_df["ID"],
-        "NPV": new_npvs,
-        "old_NPV": npvs,
-    })
-    
+    new_npvs = npvs + (risk*100 @ changes)
     swaps_df["NPV"] = new_npvs
-    
-    rates = swaps_df["FixedRate"].astype("float64").to_numpy()
-    fixedraterisk = risk_df["R"].astype("float64") if "R" in risk_df.columns else pd.Series([1.0] * len(risk_df), index=risk_df.index)
-    fixedraterisk = fixedraterisk.to_numpy()
-    fixedraterisk[fixedraterisk == 0] = 1e-9
-    # swaps_df["ParRate"] = rates + (new_npvs / fixedraterisk)
+    rates = swaps_df["FixedRate"].to_numpy(dtype="float64")
+    fixedraterisk = risk_df["R"].to_numpy(dtype="float64")
+    swaps_df["ParRate"] = rates + (new_npvs / fixedraterisk)/100
+
     return swaps_df
