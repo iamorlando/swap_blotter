@@ -1,5 +1,4 @@
 import pandas as pd
-from typing import Dict, Sequence
 from .datafeed import _source
 
 def get_md_changes(data: pd.DataFrame) -> pd.DataFrame:

@@ -27,6 +27,7 @@ export default function DatafeedPage() {
     router.replace(qs ? `${pathname}?${qs}` : `${pathname}`, { scroll: false });
   }, [router, pathname, searchParams]);
   const workerRef = React.useRef<Worker | null>(null);
+  const approxWorkerRef = React.useRef<Worker | null>(null);
   const [data, setData] = React.useState<Array<{ Term: string; Rate: number }>>([]);
   const [ready, setReady] = React.useState(false);
   const [auto, setAuto] = React.useState(true);
@@ -35,6 +36,7 @@ export default function DatafeedPage() {
   const [moveDir, setMoveDir] = React.useState<"up" | "down" | "flat" | null>(null);
   const [seq, setSeq] = React.useState(0);
   const [fps, setFps] = React.useState(1); // ticks per second
+  const [approxSwaps, setApproxSwaps] = React.useState<any[] | null>(null);
 
   React.useEffect(() => {
     const w = new Worker(new URL("../../workers/datafeed.worker.ts", import.meta.url));
@@ -49,6 +51,7 @@ export default function DatafeedPage() {
         w.postMessage({ type: "startAuto", intervalMs });
       } else if (msg.type === "data") {
         setData(msg.data as Array<{ Term: string; Rate: number }>);
+        approxWorkerRef.current?.postMessage({ type: "curve", curve: msg.data });
         if (msg.movedTerm) {
           setMovedTerm(msg.movedTerm as string);
           setMoveDir((msg.dir as any) || "flat");
@@ -63,6 +66,24 @@ export default function DatafeedPage() {
       if (auto) w.postMessage({ type: "stopAuto" });
       w.terminate();
       workerRef.current = null;
+    };
+  }, []);
+
+  React.useEffect(() => {
+    const w = new Worker(new URL("../../workers/swapApprox.worker.ts", import.meta.url));
+    approxWorkerRef.current = w;
+    w.onmessage = (e: MessageEvent) => {
+      const msg = e.data || {};
+      if (msg.type === "approx") {
+        setApproxSwaps(msg.swaps as any[]);
+      } else if (msg.type === "error") {
+        console.error("approx worker", msg.error);
+      }
+    };
+    w.postMessage({ type: "init", baseUrl: "https://cdn.jsdelivr.net/pyodide/v0.26.1/full/", datafeedUrl: "/py/datafeed.py", approxUrl: "/py/swap_approximation.py" });
+    return () => {
+      w.terminate();
+      approxWorkerRef.current = null;
     };
   }, []);
 
@@ -402,7 +423,7 @@ export default function DatafeedPage() {
   const Bottom = (
     <div className="p-4 space-y-2">
       <div className="text-sm text-gray-300">Blotter</div>
-      <BlotterGrid />
+      <BlotterGrid approxWorkerRef={approxWorkerRef} approxSwaps={approxSwaps} />
     </div>
   );
 
@@ -426,7 +447,7 @@ export default function DatafeedPage() {
   );
 }
 
-function BlotterGrid() {
+function BlotterGrid({ approxWorkerRef, approxSwaps }: { approxWorkerRef: React.MutableRefObject<Worker | null>; approxSwaps: any[] | null }) {
   const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 });
   const fmtDate = React.useCallback((v: any) => {
     if (!v) return "";
@@ -521,8 +542,20 @@ function BlotterGrid() {
     const url = `/api/swaps?page=${paginationModel.page}&pageSize=${paginationModel.pageSize}&sortField=${sortField}&sortOrder=${sortOrder}`;
     const res = await fetch(url);
     const data = await res.json();
-    setRows(data.rows || []);
+    const baseRows: BlotterRow[] = data.rows || [];
+    setRows(baseRows);
     setRowCount(data.total || 0);
+    try {
+      const ids = baseRows.map((r) => r.ID ?? r.id).filter((v) => v != null);
+      if (ids.length && approxWorkerRef.current) {
+        const riskRes = await fetch(`/api/risk-batch?ids=${encodeURIComponent(ids.join(","))}`);
+        const riskJson = await riskRes.json();
+        const riskRows = riskJson.rows || [];
+        approxWorkerRef.current.postMessage({ type: "setSwapsRisk", swaps: baseRows, risk: riskRows });
+      }
+    } catch (e) {
+      console.error("risk fetch", e);
+    }
     setLoading(false);
   }, [paginationModel.page, paginationModel.pageSize, sortModel]);
 
@@ -536,6 +569,27 @@ function BlotterGrid() {
       setSortModel([{ field: columns[0]?.field ?? (generatedIdField as string) ?? "ID", sort: "asc" }]);
     }
   }, [columns]);
+
+  React.useEffect(() => {
+    if (!approxSwaps || !approxSwaps.length) return;
+    setRows((prev) => {
+      if (!prev.length) return prev;
+      const byId: Record<string, any> = Object.create(null);
+      for (const r of approxSwaps) {
+        const key = String(r.ID ?? r.id ?? "");
+        if (key) byId[key] = r;
+      }
+      return prev.map((row) => {
+        const key = String(row.ID ?? row.id ?? "");
+        const src = byId[key];
+        if (!src) return row;
+        const next: any = { ...row };
+        if (src.NPV != null) next.NPV = src.NPV;
+        if (src.ParRate != null) next.ParRate = src.ParRate;
+        return next;
+      });
+    });
+  }, [approxSwaps]);
 
   return (
     <div className="h-[420px] border border-gray-800 rounded-md bg-gray-900 flex flex-col">

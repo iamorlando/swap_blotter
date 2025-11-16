@@ -17,10 +17,9 @@ async function init(baseUrl: string, pythonUrl: string) {
     await pyodide.loadPackage(["numpy", "pandas"]);
     const res = await fetch(pythonUrl, { cache: "no-store" });
     if (!res.ok) throw new Error(`Failed to fetch ${pythonUrl}: ${res.status}`);
-    const py = await res.text();
-    pyodide.runPython(py);
+    const code = await res.text();
+    pyodide.runPython(code);
     initialized = true;
-    // seed lastRates
     try {
       const initJson: string = pyodide.runPython(
         "import json\n" +
@@ -42,10 +41,10 @@ async function init(baseUrl: string, pythonUrl: string) {
 
 function dfToJson(): any[] {
   const jsonStr: string = pyodide.runPython(
-    `import json\n` +
-      `df = get_datafeed()\n` +
-      `df = df.reset_index()\n` +
-      `json.dumps(df.to_dict(orient='records'))\n`
+    `import json\n`
+      + `df = get_datafeed()\n`
+      + `df = df.reset_index()\n`
+      + `json.dumps(df.to_dict(orient='records'))\n`
   );
   try {
     return JSON.parse(jsonStr);
@@ -56,7 +55,6 @@ function dfToJson(): any[] {
 
 function postData() {
   const data = dfToJson();
-  // refresh lastRates
   lastRates = Object.create(null);
   for (const r of data) lastRates[r.Term] = r.Rate;
   ctx.postMessage({ type: "data", data });
@@ -78,7 +76,6 @@ function scheduleNext(_intervalMs: number) {
       const data = payload.df as any[];
       const prev = lastRates[label];
       const dir = prev == null ? "flat" : newRate > prev ? "up" : newRate < prev ? "down" : "flat";
-      // update lastRates
       lastRates = Object.create(null);
       for (const r of data) lastRates[r.Term] = r.Rate;
       ctx.postMessage({ type: "data", data, movedTerm: label, dir });
@@ -132,7 +129,6 @@ ctx.onmessage = async (ev: MessageEvent) => {
   } else if (msg.type === "updateInterval") {
     const intervalMs = typeof msg.intervalMs === "number" ? msg.intervalMs : currentIntervalMs;
     currentIntervalMs = intervalMs;
-    // If running, restart the timer with new interval
     if (running) {
       if (timer) clearTimeout(timer);
       scheduleNext(currentIntervalMs);

@@ -24,6 +24,11 @@ async function init(baseUrl: string, datafeedUrl: string, calibUrl: string) {
     if (!dfRes.ok || !ccRes.ok) throw new Error("Failed to fetch python modules");
     const [dfCode, ccCode] = await Promise.all([dfRes.text(), ccRes.text()]);
 
+    const valStr = process.env.NEXT_PUBLIC_VALUATION_DATE;
+    const valLine = valStr
+      ? `m_curv.VAL_DATE_STR = r'${valStr.replace(/'/g, "\\'")}'\n`
+      : "";
+
     // Create a package 'py' and register modules so relative import works
     const bootstrap = `\n`
       + `import types, sys\n`
@@ -32,6 +37,7 @@ async function init(baseUrl: string, datafeedUrl: string, calibUrl: string) {
       + `exec(compile(r'''${escapeForPyExec(dfCode)}''', 'py/datafeed.py', 'exec'), m_data.__dict__)\n`
       + `sys.modules['py.datafeed'] = m_data\n`
       + `m_curv = types.ModuleType('py.curve_calibration'); m_curv.__package__='py'\n`
+      + valLine
       + `exec(compile(r'''${escapeForPyExec(ccCode)}''', 'py/curve_calibration.py', 'exec'), m_curv.__dict__)\n`
       + `sys.modules['py.curve_calibration'] = m_curv\n`
       + `from py.curve_calibration import calibrate_curve, get_discount_factor_curve, get_zero_rate_curve, get_forward_rate_curve\n`;
@@ -78,4 +84,3 @@ ctx.onmessage = async (ev: MessageEvent) => {
     }
   }
 };
-

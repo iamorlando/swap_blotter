@@ -11,7 +11,17 @@ from rateslib import add_tenor, dt, Curve, Solver, IRS, dcf
 from datetime import datetime, timedelta
 from .datafeed import _source
 
-valuation_date = dt(2025, 11,15)
+VAL_DATE_STR = globals().get("VAL_DATE_STR")
+if VAL_DATE_STR:
+    try:
+        _y, _m, _d = map(int, str(VAL_DATE_STR).split("-"))
+        valuation_date = dt(_y, _m, _d)
+    except Exception:
+        today = datetime.now().date()
+        valuation_date = dt(today.year, today.month, today.day)
+else:
+    today = datetime.now().date()
+    valuation_date = dt(today.year, today.month, today.day)
 
 maturities = [add_tenor(valuation_date, _, "F", "nyc") for _ in _source.index]
 terms = _source.index.to_list()
