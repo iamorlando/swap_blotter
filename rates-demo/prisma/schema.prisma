@@ -21,6 +21,7 @@ model MainTbl {
   Notional         BigInt?
   SwapType         String?
   PayFixed         Boolean?
+  PricingTime      DateTime?
 
   @@map("main_tbl")
 }
@@ -64,6 +65,7 @@ model RiskTbl {
   R     Float?
   z     Float?
   RowType String?
+  PricingTime      DateTime?
 
   @@map("risk_tbl")
 }
@@ -74,6 +76,7 @@ model MainAgg {
   ID      String
   NPV     Float?
   Notional BigInt?
+  PricingTime DateTime?
 
   @@id([RowType, ID])
   @@map("main_agg")
@@ -119,6 +122,7 @@ model RiskAgg {
 
   R     Float?
   z     Float?
+  PricingTime      DateTime?
 
   @@id([RowType, ID])
   @@map("risk_agg")
@@ -132,4 +136,28 @@ model Fixing {
 
   @@id([indexName, date])
   @@map("fixings")
+}
+
+// Mirrors DuckDB calibrations
+model Calibration {
+  curve_id  String
+  json      String?
+  timestamp DateTime?
+
+  @@id([curve_id, timestamp])
+  @@map("calibrations")
+}
+
+// Mirrors DuckDB one_dimensional_market_data
+model OneDimensionalMarketData {
+  Term            String
+  Rate            Float?
+  Termination     DateTime?
+  quote_type      String?
+  curve_id        String?
+  instrument_spec String?
+  quote_time      DateTime?
+
+  @@id([Term, curve_id, quote_time])
+  @@map("one_dimensional_market_data")
 }

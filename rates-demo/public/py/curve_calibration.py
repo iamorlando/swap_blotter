@@ -36,11 +36,12 @@ sofr = Curve(
         **{_: 1.0 for _ in maturities},
     },
 )
-
+sofr_json = sofr.to_json()
 
 def calibrate_curve(data: DataFrame) -> DataFrame:
     global sofr
     global maturities
+    global sofr_json
     _ = Solver(
         curves=[sofr],
         instruments=[
@@ -50,7 +51,10 @@ def calibrate_curve(data: DataFrame) -> DataFrame:
         instrument_labels=data["Term"],
         id="us_rates",
     )
-    return sofr
+    sofr_json = sofr.to_json()
+
+    return sofr_json
+
 
 display_terms = ["1B",
                  "2B",

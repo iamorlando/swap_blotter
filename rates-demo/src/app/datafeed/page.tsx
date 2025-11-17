@@ -4,8 +4,8 @@ import * as React from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Scatter } from "recharts";
-import { DataGrid, GridColDef, GridPaginationModel, GridSortModel } from "@mui/x-data-grid";
-import { Slider } from "@mui/material";
+import { DataGrid, GridColDef, GridPaginationModel, GridSortModel, GridRenderEditCellParams } from "@mui/x-data-grid";
+import { Slider, TextField } from "@mui/material";
 import VerticalSplit from "@/components/VerticalSplit";
 import HorizontalSplit from "@/components/HorizontalSplit";
 import { columnsMeta as generatedColumns, idField as generatedIdField } from "@/generated/blotterColumns";
@@ -20,6 +20,44 @@ type DragState = {
   baseCurve: Array<{ Term: string; Rate: number }>;
   targetIndex?: number;
 };
+
+const RateEditCellComponent = React.memo(function RateEditCellComponent(params: GridRenderEditCellParams) {
+  const { api, id, field, value } = params;
+  const [raw, setRaw] = React.useState(() => (value == null ? "" : String(Number(value) * 100)));
+  const lastIdRef = React.useRef(id);
+  React.useEffect(() => {
+    if (lastIdRef.current !== id) {
+      lastIdRef.current = id;
+      setRaw(value == null ? "" : String(Number(value) * 100));
+    }
+  }, [id, value]);
+
+  const onChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    setRaw(val);
+    if (val === "") {
+      api.setEditCellValue({ id, field, value: null }, e);
+      return;
+    }
+    const num = Number(val);
+    if (!Number.isFinite(num)) {
+      return; // ignore non-numeric input
+    }
+    api.setEditCellValue({ id, field, value: num / 100 }, e);
+  };
+
+  return (
+    <TextField
+      autoFocus
+      type="text"
+      value={raw}
+      onChange={onChange}
+      variant="standard"
+      inputProps={{ style: { color: "#e5e7eb" } }}
+      sx={{ width: "100%" }}
+    />
+  );
+});
 
 export default function DatafeedPage() {
   const router = useRouter();
@@ -41,6 +79,7 @@ export default function DatafeedPage() {
   const [swapSnapshot, setSwapSnapshot] = React.useState<BlotterRow | null>(null);
   const [riskMapState, setRiskMapState] = React.useState<Record<string, any>>({});
   const riskMapRef = React.useRef<Record<string, any>>({});
+  const [modalApprox, setModalApprox] = React.useState<any>(null);
   const updateRiskMap = React.useCallback((next: Record<string, any>) => {
     riskMapRef.current = next;
     setRiskMapState(next);
@@ -164,6 +203,9 @@ export default function DatafeedPage() {
           }
         });
         setApproxOverrides(map);
+        if (swapId && map[String(swapId)]) {
+          setModalApprox(map[String(swapId)]);
+        }
       } else if (msg.type === "error") {
         console.error("[approx worker] error", msg.error);
       } else if (msg.type === "log") {
@@ -175,15 +217,37 @@ export default function DatafeedPage() {
       approxReadyRef.current = false;
       setApproxReady(false);
       setApproxOverrides({});
+      setModalApprox(null);
       w.terminate();
       approxRef.current = null;
     };
-  }, []);
+  }, [swapId]);
 
   React.useEffect(() => {
     if (!ready || !workerRef.current) return;
     workerRef.current.postMessage({ type: "setTickParams", params: { sigma_bps: shockBps } });
   }, [ready, shockBps]);
+
+  React.useEffect(() => {
+    setModalApprox(null);
+  }, [swapId]);
+
+  React.useEffect(() => {
+    if (!approxReady) return;
+    if (!swapId) return;
+    const swapRow = swapSnapshot;
+    if (!swapRow) return;
+    const riskRow = riskMapState[swapId];
+    const swapPayload = {
+      ID: swapRow.ID ?? swapRow.id,
+      id: swapRow.id,
+      FixedRate: swapRow.FixedRate == null ? null : Number(swapRow.FixedRate),
+      NPV: swapRow.NPV == null ? null : Number(swapRow.NPV),
+      ParRate: swapRow.ParRate == null ? null : Number(swapRow.ParRate),
+      Notional: swapRow.Notional == null ? null : Number(swapRow.Notional),
+    };
+    approxRef.current?.postMessage({ type: "swaps", swaps: [swapPayload], risk: riskRow ? [riskRow] : [] });
+  }, [approxReady, swapId, swapSnapshot, riskMapState]);
 
   const requestApproximation = React.useCallback((swaps: any[], risk: any[]) => {
     if (!approxRef.current) return;
@@ -198,6 +262,9 @@ export default function DatafeedPage() {
     () => data.map((d, i) => ({ id: i, Term: d.Term, Rate: d.Rate })),
     [data]
   );
+const renderRateEditCell = React.useCallback((params: GridRenderEditCellParams) => {
+    return <RateEditCellComponent {...params} />;
+  }, []);
   const dataPct = React.useMemo(() => data.map(d => ({ Term: d.Term, RatePct: (d.Rate == null ? null : Number(d.Rate) * 100) })), [data]);
   const dragBaselinePct = React.useMemo(() => {
     if (!dragState) return null;
@@ -318,6 +385,8 @@ export default function DatafeedPage() {
       width: 160,
       type: "number",
       editable: true,
+      cellClassName: "editable-cell",
+      renderEditCell: renderRateEditCell,
       renderCell: (params) => {
         const term = (params.row as Row).Term;
         const isMoved = term === movedTerm;
@@ -567,24 +636,34 @@ export default function DatafeedPage() {
       <div className="rounded-lg border border-gray-800 bg-gray-900 p-3">
         <div className="text-sm text-gray-300 mb-1">Rates</div>
         <div className="h-48">
-          <DataGrid
-            rows={rows}
-            columns={columns}
-            disableColumnMenu
-            hideFooter
-            density="compact"
-            editMode="cell"
-            processRowUpdate={processRowUpdate}
-            onCellEditStart={onEditStart}
-            onCellEditStop={onEditStop}
-            sx={{
-              color: "#e5e7eb",
-              border: 0,
-              "& .MuiDataGrid-columnHeaders": { backgroundColor: "#0b1220" },
-              "& .MuiDataGrid-row": { backgroundColor: "#111827" },
-              "& .MuiDataGrid-cell": { borderColor: "#1f2937" },
-            }}
-          />
+      <DataGrid
+        rows={rows}
+        columns={columns}
+        disableColumnMenu
+        hideFooter
+        density="compact"
+        editMode="cell"
+        processRowUpdate={processRowUpdate}
+        onCellEditStart={onEditStart}
+        onCellEditStop={onEditStop}
+        onCellClick={(params) => {
+          if (params.field === "Rate") {
+            const mode = params.api.getCellMode(params.id, params.field);
+            if (mode !== "edit") {
+              params.api.startCellEditMode({ id: params.id, field: params.field });
+            }
+          }
+        }}
+        sx={{
+          color: "#e5e7eb",
+          border: 0,
+          "& .MuiDataGrid-columnHeaders": { backgroundColor: "#0b1220" },
+          "& .MuiDataGrid-row": { backgroundColor: "#111827" },
+          "& .MuiDataGrid-cell": { borderColor: "#1f2937" },
+          "& .editable-cell": { backgroundColor: "#0b1220" },
+          "& .MuiDataGrid-cell--editing": { backgroundColor: "#111827" },
+        }}
+      />
         </div>
       </div>
     </div>
@@ -758,6 +837,7 @@ export default function DatafeedPage() {
             onClose={closeSwap}
             swapRow={swapSnapshot}
             riskRow={riskMapState[swapId] || null}
+            modalApprox={modalApprox}
           />
         </Modal>
       )}
@@ -1083,15 +1163,27 @@ type SwapModalShellProps = {
   onClose: () => void;
   swapRow: BlotterRow | null;
   riskRow: any;
+  modalApprox: any;
 };
 
-function SwapModalShell({ swapId, onClose, swapRow, riskRow: _riskRow }: SwapModalShellProps) {
+function SwapModalShell({ swapId, onClose, swapRow, riskRow: _riskRow, modalApprox }: SwapModalShellProps) {
   const [tab, setTab] = React.useState<"pricing" | "cashflows" | "fixings" | "risk">("pricing");
   React.useEffect(() => { setTab("pricing"); }, [swapId]);
 
   const counterparty = (swapRow as any)?.CounterpartyID ?? "—";
   const notional = swapRow?.Notional == null ? null : Math.abs(Number(swapRow.Notional));
+  const startDate = swapRow?.StartDate ? new Date(swapRow.StartDate) : null;
+  const maturityDate = swapRow?.TerminationDate ? new Date(swapRow.TerminationDate) : null;
+  const fixedRate = swapRow?.FixedRate == null ? null : Number(swapRow.FixedRate);
   const fmtUsd = (v: number | null | undefined) => v == null ? "—" : new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 }).format(v).replace("$", "$ ");
+  const fmtPct = (v: number | null | undefined) => v == null ? "—" : `${Number(v).toFixed(2)}%`;
+  const fmtDate = (d: Date | null) => {
+    if (!d || isNaN(d.getTime())) return "—";
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  };
 
   const InfoRow = ({ label, value }: { label: string; value: React.ReactNode }) => (
     <div className="flex flex-col">
@@ -1137,6 +1229,22 @@ function SwapModalShell({ swapId, onClose, swapRow, riskRow: _riskRow }: SwapMod
     return { cols, rows, dvo1 };
   }, [riskRow]);
 
+  const renderTicker = (label: string, baseVal: number | null | undefined, liveVal: number | null | undefined, fmt: (n: number) => string) => {
+    const base = baseVal == null ? null : Number(baseVal);
+    const live = liveVal == null ? null : Number(liveVal);
+    const delta = base == null || live == null ? 0 : live - base;
+    const dir = delta > 1e-6 ? "up" : delta < -1e-6 ? "down" : "flat";
+    const arrow = dir === "up" ? "▲" : dir === "down" ? "▼" : "";
+    const color = dir === "up" ? "text-green-400" : dir === "down" ? "text-red-400" : "text-gray-200";
+    return (
+      <div className={`flex items-center gap-1 text-sm ${color}`}>
+        <span className="uppercase text-[11px] tracking-wide text-gray-500">{label}</span>
+        {arrow && <span>{arrow}</span>}
+        <span className="font-mono">{live == null ? "—" : fmt(live)}</span>
+      </div>
+    );
+  };
+
   return (
     <div className="space-y-4 text-sm text-gray-200">
       <div className="flex items-start justify-between gap-4">
@@ -1144,13 +1252,20 @@ function SwapModalShell({ swapId, onClose, swapRow, riskRow: _riskRow }: SwapMod
           <div className="flex items-center gap-3">
             <div className="text-lg font-semibold">Swap {swapId}</div>
             <span className="text-xs rounded-full bg-gray-800 border border-gray-700 px-2 py-0.5 text-gray-300">live</span>
+            {swapRow && (
+              <div className="flex items-center gap-3">
+                {renderTicker("NPV", swapRow.NPV, modalApprox?.NPV, fmtUsd)}
+                {renderTicker("PAR", swapRow.ParRate, modalApprox?.ParRate, fmtPct)}
+              </div>
+            )}
           </div>
           <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-            <InfoRow label="Counterparty" value={counterparty} />
             <InfoRow label="Notional" value={fmtUsd(notional)} />
-            <InfoRow label="Counterparty Exposure" value="— (from main_agg / risk_agg)" />
-            <InfoRow label="Ticking NPV" value="— bp (placeholder)" />
-            <InfoRow label="Ticking ParSpread" value="— bp (placeholder)" />
+            <InfoRow label="Counterparty" value={counterparty} />
+            <InfoRow label="Start date" value={fmtDate(startDate)} />
+            <InfoRow label="Maturity" value={fmtDate(maturityDate)} />
+            <InfoRow label="Fixed rate" value={fmtPct(fixedRate)} />
+            <InfoRow label="Swap type" value={(swapRow as any)?.SwapType ?? "SOFR"} />
           </div>
         </div>
         <div className="flex items-center gap-2">

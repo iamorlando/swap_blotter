@@ -1,6 +1,6 @@
 /*
   Loads data exported from DuckDB into Postgres via Prisma, without psql.
-  Expects files in .migrate_csv/: main_tbl.csv, risk_tbl.csv, main_agg.csv, risk_agg.csv, fixings.csv
+  Expects files in .migrate_csv/: main_tbl.csv, risk_tbl.csv, main_agg.csv, risk_agg.csv, fixings.csv, calibrations.csv, one_dimensional_market_data.csv
 */
 import fs from 'fs';
 import path from 'path';
@@ -68,6 +68,7 @@ async function loadMainTbl(dir: string) {
     Notional: r['Notional'] == null ? undefined : BigInt(r['Notional']),
     SwapType: r['SwapType'] ?? undefined,
     PayFixed: toBool(r['PayFixed']) ?? undefined,
+    PricingTime: toDate(r['PricingTime']) ?? undefined,
   }));
   await (prisma as any).mainTbl.createMany({ data, skipDuplicates: true });
   console.log(`main_tbl: inserted ${data.length}`);
@@ -86,6 +87,7 @@ async function loadRiskTbl(dir: string) {
     o['R'] = toFloat(r['R']) ?? undefined;
     o['z'] = toFloat(r['z']) ?? undefined;
     o['RowType'] = r['RowType'] ?? undefined;
+    o['PricingTime'] = toDate(r['PricingTime']) ?? undefined;
     return o;
   });
   await (prisma as any).riskTbl.createMany({ data, skipDuplicates: true });
@@ -102,6 +104,7 @@ async function loadMainAgg(dir: string) {
     ID: r['ID']!,
     NPV: toFloat(r['NPV']) ?? undefined,
     Notional: r['Notional'] == null ? undefined : BigInt(r['Notional']),
+    PricingTime: toDate(r['PricingTime']) ?? undefined,
   }));
   await (prisma as any).mainAgg.createMany({ data, skipDuplicates: true });
   console.log(`main_agg: inserted ${data.length}`);
@@ -117,6 +120,7 @@ async function loadRiskAgg(dir: string) {
     for (const b of bucketCols) o[`c_${b}`] = toFloat(r[b]) ?? undefined;
     o['R'] = toFloat(r['R']) ?? undefined;
     o['z'] = toFloat(r['z']) ?? undefined;
+    o['PricingTime'] = toDate(r['PricingTime']) ?? undefined;
     return o;
   });
   await (prisma as any).riskAgg.createMany({ data, skipDuplicates: true });
@@ -138,6 +142,40 @@ async function loadFixings(dir: string) {
   console.log(`fixings: inserted ${data.length}`);
 }
 
+async function loadCalibrations(dir: string) {
+  const fp = path.join(dir, 'calibrations.csv');
+  if (!fs.existsSync(fp)) { console.warn('skip: calibrations.csv not found'); return; }
+  const rows = parseCSV(fp);
+  if (!rows.length) { console.log('calibrations: no rows'); return; }
+  const data = rows.map(r => ({
+    curve_id: r['curve_id'] ?? undefined,
+    json: r['json'] ?? undefined,
+    timestamp: toDate(r['timestamp']) ?? undefined,
+  })).filter(r => r.curve_id && r.timestamp) as any[];
+  if (!data.length) { console.log('calibrations: no valid rows'); return; }
+  await (prisma as any).calibration.createMany({ data, skipDuplicates: true });
+  console.log(`calibrations: inserted ${data.length}`);
+}
+
+async function loadOneDimensional(dir: string) {
+  const fp = path.join(dir, 'one_dimensional_market_data.csv');
+  if (!fs.existsSync(fp)) { console.warn('skip: one_dimensional_market_data.csv not found'); return; }
+  const rows = parseCSV(fp);
+  if (!rows.length) { console.log('one_dimensional_market_data: no rows'); return; }
+  const data = rows.map(r => ({
+    Term: r['Term']!,
+    Rate: toFloat(r['Rate']) ?? undefined,
+    Termination: toDate(r['Termination']) ?? undefined,
+    quote_type: r['quote_type'] ?? undefined,
+    curve_id: r['curve_id'] ?? undefined,
+    instrument_spec: r['instrument_spec'] ?? undefined,
+    quote_time: toDate(r['quote_time']) ?? undefined,
+  })).filter(r => r.Term && r.curve_id && r.quote_time) as any[];
+  if (!data.length) { console.log('one_dimensional_market_data: no valid rows'); return; }
+  await (prisma as any).oneDimensionalMarketData.createMany({ data, skipDuplicates: true });
+  console.log(`one_dimensional_market_data: inserted ${data.length}`);
+}
+
 async function main() {
   const root = path.resolve(__dirname, '..');
   const outDir = path.join(root, '.migrate_csv');
@@ -146,6 +184,8 @@ async function main() {
   await loadMainAgg(outDir);
   await loadRiskAgg(outDir);
   await loadFixings(outDir);
+  await loadCalibrations(outDir);
+  await loadOneDimensional(outDir);
 }
 
 main().finally(() => prisma.$disconnect());
