@@ -1176,7 +1176,7 @@ function SwapModalShell({ swapId, onClose, swapRow, riskRow: _riskRow, modalAppr
   }, [_riskRow]);
 
   const riskGrid = React.useMemo(() => {
-    if (!riskRow) return { cols: [], rows: [] };
+    if (!riskRow) return { cols: [], rows: [], dvo1: 0 };
     const entries: Array<{ term: string; exposure: number }> = [];
     Object.entries(riskRow).forEach(([key, val]) => {
       if (key === "R" || key === "z" || key.toLowerCase() === "rowtype" || key.toLowerCase() === "id") return;
@@ -1317,7 +1317,7 @@ function SwapModalShell({ swapId, onClose, swapRow, riskRow: _riskRow, modalAppr
               <div className="text-gray-400 text-xs">Risk (DV01-style buckets)</div>
               {riskGrid.rows.length ? (
                 <div className="text-sm text-gray-200">
-                  dvo1: <span className="font-mono text-amber-300">{riskGrid.dvo1.toFixed(2)}</span>
+                  dvo1: <span className="font-mono text-amber-300">{(riskGrid.dvo1 ?? 0).toFixed(2)}</span>
                 </div>
               ) : null}
             </div>
