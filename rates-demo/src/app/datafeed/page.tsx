@@ -137,6 +137,9 @@ export default function DatafeedPage() {
     return () => observer.disconnect();
   }, []);
 
+  const autoRef = React.useRef(auto);
+  React.useEffect(() => { autoRef.current = auto; }, [auto]);
+
   React.useEffect(() => {
     const w = new Worker(new URL("../../workers/datafeed.worker.ts", import.meta.url));
     workerRef.current = w;
@@ -170,11 +173,13 @@ export default function DatafeedPage() {
     };
     w.postMessage({ type: "init", baseUrl: "https://cdn.jsdelivr.net/pyodide/v0.29.0/full/", pythonUrl: "/py/datafeed.py" });
     return () => {
-      if (auto) w.postMessage({ type: "stopAuto" });
+      if (autoRef.current) w.postMessage({ type: "stopAuto" });
       w.terminate();
       workerRef.current = null;
     };
   }, [pushApproxMarket]);
+
+  const swapIdRef = React.useRef<string | null>(null);
 
   React.useEffect(() => {
     const w = new Worker(new URL("../../workers/swapApprox.worker.ts", import.meta.url));
@@ -202,8 +207,9 @@ export default function DatafeedPage() {
           }
         });
         setApproxOverrides(map);
-        if (swapId && map[String(swapId)]) {
-          setModalApprox(map[String(swapId)]);
+        const activeSwap = swapIdRef.current;
+        if (activeSwap && map[String(activeSwap)]) {
+          setModalApprox(map[String(activeSwap)]);
         }
       } else if (msg.type === "error") {
         console.error("[approx worker] error", msg.error);
@@ -220,7 +226,7 @@ export default function DatafeedPage() {
       w.terminate();
       approxRef.current = null;
     };
-  }, [swapId]);
+  }, []);
 
   React.useEffect(() => {
     if (!ready || !workerRef.current) return;
@@ -228,15 +234,22 @@ export default function DatafeedPage() {
   }, [ready, shockBps]);
 
   React.useEffect(() => {
-    setModalApprox(null);
-  }, [swapId]);
+    swapIdRef.current = swapId;
+    if (!swapId) {
+      setModalApprox(null);
+      return;
+    }
+    const existing = approxOverrides[swapId];
+    if (existing) setModalApprox(existing);
+  }, [swapId, approxOverrides]);
 
   React.useEffect(() => {
     if (!approxReady) return;
-    if (!swapId) return;
+    const activeSwap = swapIdRef.current;
+    if (!activeSwap) return;
     const swapRow = swapSnapshot;
     if (!swapRow) return;
-    const riskRow = riskMapState[swapId];
+    const riskRow = riskMapState[activeSwap];
     const swapPayload = {
       ID: swapRow.ID ?? swapRow.id,
       id: swapRow.id,
@@ -246,7 +259,7 @@ export default function DatafeedPage() {
       Notional: swapRow.Notional == null ? null : Number(swapRow.Notional),
     };
     approxRef.current?.postMessage({ type: "swaps", swaps: [swapPayload], risk: riskRow ? [riskRow] : [] });
-  }, [approxReady, swapId, swapSnapshot, riskMapState]);
+  }, [approxReady, swapSnapshot, riskMapState]);
 
   const requestApproximation = React.useCallback((swaps: any[], risk: any[]) => {
     if (!approxRef.current) return;
@@ -804,7 +817,10 @@ type BlotterGridProps = {
 };
 
 function BlotterGrid({ approxReady, approxOverrides, requestApproximation, clearApproximation, hasCurveData, onOpenSwap, onRiskMapUpdate }: BlotterGridProps) {
-  const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 });
+  const usd = React.useMemo(
+    () => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 }),
+    []
+  );
   const fmtDate = React.useCallback((v: any) => {
     if (!v) return "";
     const d = typeof v === "string" || typeof v === "number" ? new Date(v) : (v as Date);
@@ -815,7 +831,7 @@ function BlotterGrid({ approxReady, approxOverrides, requestApproximation, clear
     return `${y}-${m}-${day}`;
   }, []);
 
-  const apiCols: ApiColumn[] = generatedColumns || [];
+  const apiCols: ApiColumn[] = React.useMemo(() => generatedColumns || [], []);
   const initialColumns: GridColDef<BlotterRow>[] = React.useMemo(() => {
     const cols: GridColDef<BlotterRow>[] = (apiCols.length ? apiCols : [{ field: generatedIdField || "ID" }])
       .filter((c) => c.field !== "RowType")
@@ -911,7 +927,7 @@ function BlotterGrid({ approxReady, approxOverrides, requestApproximation, clear
     if (nIdx >= 0) cols[nIdx] = { ...cols[nIdx], ...notionalCol };
     else cols.push(notionalCol);
     return cols;
-  }, [apiCols, fmtDate]);
+  }, [apiCols, fmtDate, onOpenSwap, usd]);
 
   const [columns] = React.useState<GridColDef<BlotterRow>[]>(initialColumns);
   const [rows, setRows] = React.useState<BlotterRow[]>([]);
@@ -963,7 +979,7 @@ function BlotterGrid({ approxReady, approxOverrides, requestApproximation, clear
     } catch (err) {
       console.error("[blotter] risk fetch", err);
     }
-  }, [approxReady, hasCurveData, requestApproximation, sanitizeRecord]);
+  }, [approxReady, hasCurveData, requestApproximation, sanitizeRecord, onRiskMapUpdate]);
 
   const fetchData = React.useCallback(async () => {
     setLoading(true);
@@ -996,7 +1012,7 @@ function BlotterGrid({ approxReady, approxOverrides, requestApproximation, clear
     if (!currentSortField || !columns.some((c) => c.field === currentSortField)) {
       setSortModel([{ field: columns[0]?.field ?? (generatedIdField as string) ?? "ID", sort: "asc" }]);
     }
-  }, [columns]);
+  }, [columns, sortModel]);
 
   const displayRows = React.useMemo(() => {
     return rows.map((row) => {

@@ -10,11 +10,13 @@ type Props = {
 
 export default function Modal({ children, title }: Props) {
   const router = useRouter();
-  const onClose = () => router.back();
+  const onClose = React.useCallback(() => router.back(), [router]);
+  const onCloseRef = React.useRef(onClose);
+  React.useEffect(() => { onCloseRef.current = onClose; }, [onClose]);
 
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") onCloseRef.current();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -33,4 +35,3 @@ export default function Modal({ children, title }: Props) {
     </div>
   );
 }
-

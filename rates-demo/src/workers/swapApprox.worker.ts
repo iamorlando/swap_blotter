@@ -95,7 +95,7 @@ async function init(baseUrl: string, datafeedUrl: string, approxUrl: string) {
           if (typeof pyRows.destroy === "function") pyRows.destroy();
         }
       }
-    } catch (_err) {
+    } catch {
       // non-fatal; we'll seed on first curve message
     }
 
