@@ -1007,9 +1007,10 @@ function BlotterGrid({ approxReady, approxOverrides, requestApproximation, clear
         Notional: row.Notional == null ? null : Number(row.Notional),
       }));
       requestApproximation(swapsPayload, sanitizedRisk);
-    } catch (err) {
+    } catch (err: unknown) {
+      const msg = err && typeof err === "object" && "message" in err ? (err as any).message : String(err);
       console.error("[blotter] risk fetch", err);
-      setFatalError(String(err));
+      setFatalError(`risk fetch: ${msg}`);
     }
   }, [approxReady, hasCurveData, requestApproximation, sanitizeRecord, onRiskMapUpdate]);
 
@@ -1020,6 +1021,10 @@ function BlotterGrid({ approxReady, approxOverrides, requestApproximation, clear
       const sortOrder = (sortModel[0]?.sort ?? "asc") as "asc" | "desc";
       const url = `/api/swaps?page=${paginationModel.page}&pageSize=${paginationModel.pageSize}&sortField=${sortField}&sortOrder=${sortOrder}`;
       const res = await fetch(url);
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(`swaps fetch failed: ${res.status} ${text}`);
+      }
       const data = await res.json();
       const baseRows: BlotterRow[] = data.rows || [];
       setRows(baseRows);
@@ -1027,9 +1032,10 @@ function BlotterGrid({ approxReady, approxOverrides, requestApproximation, clear
       clearApproximation();
       onRiskMapUpdate({});
       requestApprox(baseRows).catch((err) => console.error("[blotter] approx", err));
-    } catch (err) {
+    } catch (err: unknown) {
+      const msg = err && typeof err === "object" && "message" in err ? (err as any).message : String(err);
       console.error("[blotter] fetch", err);
-      setFatalError(String(err));
+      setFatalError(msg);
     } finally {
       setLoading(false);
     }
