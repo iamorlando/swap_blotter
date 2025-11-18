@@ -94,6 +94,7 @@ function DatafeedPageInner() {
     }
   }, []);
   const [fatalError, setFatalError] = React.useState<string | null>(null);
+  const [approxFatal, setApproxFatal] = React.useState<string | null>(null);
   const [data, setData] = React.useState<Array<{ Term: string; Rate: number }>>([]);
   const [ready, setReady] = React.useState(false);
   const [auto, setAuto] = React.useState(true);
@@ -213,6 +214,7 @@ function DatafeedPageInner() {
         }
       } else if (msg.type === "error") {
         console.error("[approx worker] error", msg.error);
+        setApproxFatal(String(msg.error ?? "Unknown error"));
       } else if (msg.type === "log") {
         console.log(`[approx worker] ${msg.message}`);
       }
@@ -790,10 +792,13 @@ const renderRateEditCell = React.useCallback((params: GridRenderEditCellParams) 
 
   return (
     <div className="min-h-screen bg-gray-950 text-gray-100">
-      {fatalError ? (
+      {fatalError || approxFatal ? (
         <div className="p-8 text-center text-red-300">
           <div className="text-lg font-semibold mb-2">Datafeed error</div>
-          <div className="text-sm text-red-200">{fatalError}</div>
+          <div className="text-sm text-red-200 whitespace-pre-line">
+            {fatalError ? `market: ${fatalError}` : ""}
+            {approxFatal ? `\napprox: ${approxFatal}` : ""}
+          </div>
         </div>
       ) : (
         <>
