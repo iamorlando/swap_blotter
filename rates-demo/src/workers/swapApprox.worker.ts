@@ -1,3 +1,5 @@
+/// <reference lib="webworker" />
+
 // Swap approximation worker: loads the python approximation module and logs
 // the per-tenor changes returned by get_md_changes for each market tick.
 export {};
