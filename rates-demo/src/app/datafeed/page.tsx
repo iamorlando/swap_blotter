@@ -796,6 +796,7 @@ const renderRateEditCell = React.useCallback((params: GridRenderEditCellParams) 
         hasCurveData={data.length > 0}
         onOpenSwap={setSwapSnapshot}
         onRiskMapUpdate={updateRiskMap}
+        onFatalError={setFatalError}
       />
     </div>
   );
@@ -847,9 +848,10 @@ type BlotterGridProps = {
   hasCurveData: boolean;
   onOpenSwap?: (row: BlotterRow) => void;
   onRiskMapUpdate: (map: Record<string, any>) => void;
+  onFatalError?: (msg: string) => void;
 };
 
-function BlotterGrid({ approxReady, approxOverrides, requestApproximation, clearApproximation, hasCurveData, onOpenSwap, onRiskMapUpdate }: BlotterGridProps) {
+function BlotterGrid({ approxReady, approxOverrides, requestApproximation, clearApproximation, hasCurveData, onOpenSwap, onRiskMapUpdate, onFatalError }: BlotterGridProps) {
   const usd = React.useMemo(
     () => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 }),
     []
@@ -1012,9 +1014,9 @@ function BlotterGrid({ approxReady, approxOverrides, requestApproximation, clear
     } catch (err: unknown) {
       const msg = err && typeof err === "object" && "message" in err ? (err as any).message : String(err);
       console.error("[blotter] risk fetch", err);
-      setFatalError(`risk fetch: ${msg}`);
+      onFatalError?.(`risk fetch: ${msg}`);
     }
-  }, [approxReady, hasCurveData, requestApproximation, sanitizeRecord, onRiskMapUpdate]);
+  }, [approxReady, hasCurveData, requestApproximation, sanitizeRecord, onRiskMapUpdate, onFatalError]);
 
   const fetchData = React.useCallback(async () => {
     setLoading(true);
@@ -1037,11 +1039,11 @@ function BlotterGrid({ approxReady, approxOverrides, requestApproximation, clear
     } catch (err: unknown) {
       const msg = err && typeof err === "object" && "message" in err ? (err as any).message : String(err);
       console.error("[blotter] fetch", err);
-      setFatalError(msg);
+      onFatalError?.(msg);
     } finally {
       setLoading(false);
     }
-  }, [paginationModel.page, paginationModel.pageSize, sortModel, clearApproximation, requestApprox, onRiskMapUpdate]);
+  }, [paginationModel.page, paginationModel.pageSize, sortModel, clearApproximation, requestApprox, onRiskMapUpdate, onFatalError]);
 
   React.useEffect(() => {
     fetchData();
