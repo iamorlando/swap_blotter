@@ -1138,6 +1138,8 @@ function SwapModalShell({ swapId, onClose, swapRow, riskRow: _riskRow, modalAppr
   const startDate = swapRow && swapRow.StartDate ? new Date(String(swapRow.StartDate)) : null;
   const maturityDate = swapRow && swapRow.TerminationDate ? new Date(String(swapRow.TerminationDate)) : null;
   const fixedRate = swapRow?.FixedRate == null ? null : Number(swapRow.FixedRate);
+  const liveNPV = modalApprox?.NPV as number | null | undefined;
+  const livePar = modalApprox?.ParRate as number | null | undefined;
   const fmtUsd = (v: number | null | undefined) => v == null ? "—" : new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 }).format(v).replace("$", "$ ");
   const fmtPct = (v: number | null | undefined) => v == null ? "—" : `${Number(v).toFixed(2)}%`;
   const fmtDate = (d: Date | null) => {
@@ -1217,8 +1219,8 @@ function SwapModalShell({ swapId, onClose, swapRow, riskRow: _riskRow, modalAppr
             <span className="text-xs rounded-full bg-gray-800 border border-gray-700 px-2 py-0.5 text-gray-300">live</span>
             {swapRow && (
               <div className="flex items-center gap-3">
-                {renderTicker("NPV", swapRow.NPV, modalApprox?.NPV, fmtUsd)}
-                {renderTicker("PAR", swapRow.ParRate, modalApprox?.ParRate, fmtPct)}
+                {renderTicker("NPV", swapRow.NPV as number | null | undefined, liveNPV, fmtUsd)}
+                {renderTicker("PAR", swapRow.ParRate as number | null | undefined, livePar, fmtPct)}
               </div>
             )}
           </div>
