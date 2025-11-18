@@ -883,8 +883,8 @@ function BlotterGrid({ approxReady, approxOverrides, requestApproximation, clear
           base.width = 140;
         } else if (t.includes("date") || t.includes("timestamp")) {
           base.width = 140;
-          base.valueFormatter = (params: any) => fmtDate(params.value);
-          base.renderCell = (params: any) => <span>{fmtDate(params.value)}</span>;
+          base.valueFormatter = (params: any) => fmtDate(params?.value);
+          base.renderCell = (params: any) => <span>{fmtDate(params?.value)}</span>;
         } else {
           base.width = 200;
         }
@@ -926,13 +926,13 @@ function BlotterGrid({ approxReady, approxOverrides, requestApproximation, clear
           };
         }
         if (c.field === "ParSpread") {
-          base.valueFormatter = (p: any) => (p.value == null ? "" : `${Number(p.value).toFixed(2)} bp`);
-          base.renderCell = (p: any) => <span>{p.value == null ? "" : `${Number(p.value).toFixed(2)} bp`}</span>;
+          base.valueFormatter = (p: any) => (p?.value == null ? "" : `${Number(p.value).toFixed(2)} bp`);
+          base.renderCell = (p: any) => <span>{p?.value == null ? "" : `${Number(p.value).toFixed(2)} bp`}</span>;
           base.align = "right";
         }
         if (c.field === "FixedRate") {
-          base.valueFormatter = (p: any) => (p.value == null ? "" : `${Number(p.value).toFixed(2)} %`);
-          base.renderCell = (p: any) => <span>{p.value == null ? "" : `${Number(p.value).toFixed(2)} %`}</span>;
+          base.valueFormatter = (p: any) => (p?.value == null ? "" : `${Number(p.value).toFixed(2)} %`);
+          base.renderCell = (p: any) => <span>{p?.value == null ? "" : `${Number(p.value).toFixed(2)} %`}</span>;
           base.align = "right";
         }
         return base;
