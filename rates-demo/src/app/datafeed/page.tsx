@@ -144,6 +144,10 @@ function DatafeedPageInner() {
   React.useEffect(() => {
     const w = new Worker(new URL("../../workers/datafeed.worker.ts", import.meta.url));
     workerRef.current = w;
+    w.addEventListener("error", (ev) => {
+      console.error("[datafeed worker] onerror", ev?.message || ev);
+      setFatalError(ev?.message || "worker error");
+    });
     w.onmessage = (e: MessageEvent) => {
       const msg = e.data || {};
       if (msg.type === "ready") {
@@ -188,6 +192,10 @@ function DatafeedPageInner() {
     approxReadyRef.current = false;
     setApproxReady(false);
     setApproxOverrides({});
+    w.addEventListener("error", (ev) => {
+      console.error("[approx worker] onerror", ev?.message || ev);
+      setApproxFatal(ev?.message || "approx worker error");
+    });
     w.onmessage = (e: MessageEvent) => {
       const msg = e.data || {};
       if (msg.type === "ready") {
@@ -798,6 +806,7 @@ const renderRateEditCell = React.useCallback((params: GridRenderEditCellParams) 
           <div className="text-sm text-red-200 whitespace-pre-line">
             {fatalError ? `market: ${fatalError}` : ""}
             {approxFatal ? `\napprox: ${approxFatal}` : ""}
+            {"\nCheck browser console for stack; if a network call failed, verify API availability."}
           </div>
         </div>
       ) : (
@@ -1000,6 +1009,7 @@ function BlotterGrid({ approxReady, approxOverrides, requestApproximation, clear
       requestApproximation(swapsPayload, sanitizedRisk);
     } catch (err) {
       console.error("[blotter] risk fetch", err);
+      setFatalError(String(err));
     }
   }, [approxReady, hasCurveData, requestApproximation, sanitizeRecord, onRiskMapUpdate]);
 
@@ -1019,6 +1029,7 @@ function BlotterGrid({ approxReady, approxOverrides, requestApproximation, clear
       requestApprox(baseRows).catch((err) => console.error("[blotter] approx", err));
     } catch (err) {
       console.error("[blotter] fetch", err);
+      setFatalError(String(err));
     } finally {
       setLoading(false);
     }
