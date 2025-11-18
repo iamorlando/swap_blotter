@@ -457,7 +457,9 @@ const renderRateEditCell = React.useCallback((params: GridRenderEditCellParams) 
 
   const CustomXAxisTick = (props: any) => {
     const { x, y, payload } = props;
-    const label = payload?.value as string;
+    const raw = payload?.value;
+    if (raw == null) return null;
+    const label = typeof raw === "string" ? raw : String(raw);
     const isMoved = label === movedTerm;
     const isHovered = label === hoveredTerm;
     const cls = isMoved ? (moveDir === "up" ? "flash-up" : moveDir === "down" ? "flash-down" : "") : isHovered ? "font-semibold text-amber-300" : "";
@@ -1150,12 +1152,12 @@ function SwapLink({ id, row, onOpenSwap }: { id: string | number; row?: BlotterR
     (e as any).defaultMuiPrevented = true;
     if (row && onOpenSwap) onOpenSwap(row);
     const sp = new URLSearchParams(searchParams?.toString() || "");
-    sp.set("swap", String(id));
+    if (id != null) sp.set("swap", String(id));
     router.push(`${pathname}?${sp.toString()}`, { scroll: false });
   };
   return (
-    <a href={`/swap/${id}`} onClick={onClick} className="text-blue-400 underline hover:text-blue-300">
-      {String(id)}
+    <a href={`/swap/${id ?? ""}`} onClick={onClick} className="text-blue-400 underline hover:text-blue-300">
+      {id == null ? "—" : String(id)}
     </a>
   );
 }
