@@ -31,8 +31,14 @@ async function init(baseUrl: string, pythonUrl: string) {
       fetch(pythonUrl, { cache: "no-store" }),
       fetch("/api/md/latest", { cache: "no-store" }),
     ]);
-    if (!res.ok) throw new Error(`Failed to fetch ${pythonUrl}: ${res.status}`);
-    if (!mdRes.ok) throw new Error(`Failed to fetch latest market data: ${mdRes.status}`);
+    if (!res.ok) {
+      const txt = await res.text().catch(() => "");
+      throw new Error(`Failed to fetch ${pythonUrl}: ${res.status} ${txt}`);
+    }
+    if (!mdRes.ok) {
+      const txt = await mdRes.text().catch(() => "");
+      throw new Error(`Failed to fetch latest market data: ${mdRes.status} ${txt}`);
+    }
     const [code, mdJson] = await Promise.all([res.text(), mdRes.json()]);
     pyodide.runPython(code);
     const rows = mdJson?.rows || [];

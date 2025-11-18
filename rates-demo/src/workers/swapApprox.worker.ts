@@ -87,18 +87,23 @@ async function init(baseUrl: string, datafeedUrl: string, approxUrl: string) {
     // Fetch base curve once from API to seed original market data.
     try {
       const seedRes = await fetch("/api/md/latest", { cache: "no-store" });
-      if (seedRes.ok) {
-        const seedJson = await seedRes.json();
-        const rows = seedJson?.rows || seedJson?.message?.rows || [];
-        if (rows && rows.length) {
-          baseCurveRows = rows;
-          const pyRows = loaded.toPy(rows);
-          setBaseCurveFn?.(pyRows);
-          if (typeof pyRows.destroy === "function") pyRows.destroy();
-        }
+      if (!seedRes.ok) {
+        const txt = await seedRes.text().catch(() => "");
+        throw new Error(`md/latest seed failed: ${seedRes.status} ${txt}`);
       }
-    } catch {
+      const seedJson = await seedRes.json();
+      const rows = seedJson?.rows || seedJson?.message?.rows || [];
+      if (rows && rows.length) {
+        baseCurveRows = rows;
+        const pyRows = loaded.toPy(rows);
+        setBaseCurveFn?.(pyRows);
+        if (typeof pyRows.destroy === "function") pyRows.destroy();
+      } else {
+        throw new Error("md/latest seed returned no rows");
+      }
+    } catch (err) {
       // non-fatal; we'll seed on first curve message
+      ctx.postMessage({ type: "error", error: `approx seed failed: ${String(err)}` });
     }
 
     initialized = true;
