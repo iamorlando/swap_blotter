@@ -1135,8 +1135,8 @@ function SwapModalShell({ swapId, onClose, swapRow, riskRow: _riskRow, modalAppr
 
   const counterparty = (swapRow as any)?.CounterpartyID ?? "—";
   const notional = swapRow?.Notional == null ? null : Math.abs(Number(swapRow.Notional));
-  const startDate = swapRow?.StartDate ? new Date(swapRow.StartDate) : null;
-  const maturityDate = swapRow?.TerminationDate ? new Date(swapRow.TerminationDate) : null;
+  const startDate = swapRow && swapRow.StartDate ? new Date(String(swapRow.StartDate)) : null;
+  const maturityDate = swapRow && swapRow.TerminationDate ? new Date(String(swapRow.TerminationDate)) : null;
   const fixedRate = swapRow?.FixedRate == null ? null : Number(swapRow.FixedRate);
   const fmtUsd = (v: number | null | undefined) => v == null ? "—" : new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 }).format(v).replace("$", "$ ");
   const fmtPct = (v: number | null | undefined) => v == null ? "—" : `${Number(v).toFixed(2)}%`;
