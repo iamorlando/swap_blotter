@@ -1,7 +1,6 @@
 "use client";
 
 import * as React from "react";
-import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Scatter } from "recharts";
 import { DataGrid, GridColDef, GridPaginationModel, GridSortModel, GridRenderEditCellParams } from "@mui/x-data-grid";
@@ -13,7 +12,7 @@ import Modal from "@/components/Modal";
 
 type Row = { id: number; Term: string; Rate: number };
 type ApiColumn = { field: string; type?: string };
-type BlotterRow = Record<string, any> & { id: string | number };
+type BlotterRow = Record<string, unknown> & { id: string | number };
 type DragState = {
   mode: "curve" | "point";
   startClientY: number;
@@ -97,7 +96,7 @@ export default function DatafeedPage() {
   const [data, setData] = React.useState<Array<{ Term: string; Rate: number }>>([]);
   const [ready, setReady] = React.useState(false);
   const [auto, setAuto] = React.useState(true);
-  const [error, setError] = React.useState<string | null>(null);
+  const [, setError] = React.useState<string | null>(null);
   const [movedTerm, setMovedTerm] = React.useState<string | null>(null);
   const [moveDir, setMoveDir] = React.useState<"up" | "down" | "flat" | null>(null);
   const [seq, setSeq] = React.useState(0);
@@ -433,46 +432,6 @@ const renderRateEditCell = React.useCallback((params: GridRenderEditCellParams) 
     }
   };
 
-  const Controls = (
-    <div className="flex items-center justify-between mb-3">
-      {/* Left group: slider only */}
-      <div className="flex items-center gap-4">
-        <div className="text-sm text-gray-300 whitespace-nowrap">Data refresh frequency</div>
-        <div className="w-56">
-          <Slider
-            value={fps}
-            min={1}
-            max={10}
-            step={1}
-            marks={Array.from({length:10},(_,i)=>{
-              const v=i+1; return {value:v,label: v===1? '1x': `${v}x`};
-            })}
-            onChange={onFpsChange}
-            valueLabelDisplay="auto"
-            valueLabelFormat={(v)=> v===1? '1x': `${v}x`}
-            sx={{ mt: 0 }}
-          />
-        </div>
-      </div>
-
-      {/* Right group: play/pause toggle aligned to end with labels */}
-      <div className="flex items-center">
-        <div className="flex items-center gap-2 text-sm select-none">
-          <span className={auto ? "text-gray-600" : "text-gray-200"}>paused</span>
-          <div
-            className={`w-10 h-6 rounded-full p-1 transition-colors cursor-pointer ${auto ? "bg-green-500" : "bg-gray-600"}`}
-            onClick={toggleAuto}
-            role="switch"
-            aria-checked={auto}
-          >
-            <div className={`h-4 w-4 bg-white rounded-full transition-transform ${auto ? "translate-x-4" : "translate-x-0"}`} />
-          </div>
-          <span className={auto ? "text-gray-200" : "text-gray-600"}>running</span>
-        </div>
-      </div>
-    </div>
-  );
-
   const CustomXAxisTick = (props: any) => {
     const { x, y, payload } = props;
     const label = payload?.value as string;
@@ -489,7 +448,8 @@ const renderRateEditCell = React.useCallback((params: GridRenderEditCellParams) 
     );
   };
 
-  const handlePointMouseDown = React.useCallback((entry: any, idx: number, ev: any) => {
+  type ScatterPoint = { payload?: { Term?: string }; [key: string]: unknown };
+  const handlePointMouseDown = React.useCallback((entry: ScatterPoint, idx: number, ev: React.MouseEvent) => {
     if (ev?.stopPropagation) ev.stopPropagation();
     if (ev?.preventDefault) ev.preventDefault();
     if (ev?.button !== 0) return;
@@ -501,7 +461,8 @@ const renderRateEditCell = React.useCallback((params: GridRenderEditCellParams) 
     setHoveringCurve(true);
   }, [beginDrag, dataPct]);
 
-  const PointHandle = (props: any) => {
+  type PointHandleProps = { cx?: number; cy?: number; payload?: { Term?: string }; index?: number };
+  const PointHandle = (props: PointHandleProps) => {
     const { cx, cy, payload, index } = props;
     if (cx == null || cy == null) return null;
     const term = payload?.Term as string;
@@ -587,7 +548,7 @@ const renderRateEditCell = React.useCallback((params: GridRenderEditCellParams) 
               margin={{ top: 10, right: 16, bottom: 0, left: 0 }}
               onMouseEnter={() => setHoveringCurve(true)}
               onMouseLeave={() => { if (!dragState) { setHoveringCurve(false); setHoveredTerm(null); } }}
-              onMouseDown={(_, e: any) => {
+              onMouseDown={(_state: unknown, e: React.MouseEvent) => {
                 if (pointDragRef.current) { pointDragRef.current = false; return; }
                 if (e?.button !== 0) return;
                 const clientY = e?.clientY ?? 0;
@@ -595,7 +556,6 @@ const renderRateEditCell = React.useCallback((params: GridRenderEditCellParams) 
                 setHoveringCurve(true);
               }}
               style={{ cursor: dragState ? "grabbing" : "grab" }}
-              isAnimationActive={false}
             >
               <defs>
                 <linearGradient id="rateFill" x1="0" y1="0" x2="0" y2="1">
@@ -675,7 +635,6 @@ const renderRateEditCell = React.useCallback((params: GridRenderEditCellParams) 
   const [discount, setDiscount] = React.useState<Array<{ term: string; df: number }>>([]);
   const [zero, setZero] = React.useState<Array<{ term: string; zero_rate: number }>>([]);
   const [forwardAnchors, setForwardAnchors] = React.useState<Array<{ term: string; days: number; forward_rate: number }>>([]);
-  const [forwardDaily, setForwardDaily] = React.useState<Array<{ day: number; rate: number }>>([]);
   const [calibErr, setCalibErr] = React.useState<string | null>(null);
   const [calibrating, setCalibrating] = React.useState(false);
   const [autoCalibrated, setAutoCalibrated] = React.useState(false);
@@ -693,17 +652,6 @@ const renderRateEditCell = React.useCallback((params: GridRenderEditCellParams) 
         setZero(msg.zero as any[]);
         const fw = (msg.forward as any[]).map((r: any) => ({ term: r.term, days: r.days, forward_rate: r.forward_rate }));
         setForwardAnchors(fw);
-        // Build daily step function (left-constant)
-        const sorted = [...fw].sort((a,b)=>a.days-b.days);
-        const maxDay = sorted.length ? sorted[sorted.length-1].days : 0;
-        const daily: Array<{day:number; rate:number}> = [];
-        let idx = 0;
-        for (let d=0; d<=maxDay; d++) {
-          while (idx+1 < sorted.length && sorted[idx+1].days <= d) idx++;
-          const rate = sorted[idx]?.forward_rate ?? (sorted[0]?.forward_rate ?? 0);
-          daily.push({ day: d, rate });
-        }
-        setForwardDaily(daily);
       } else if (msg.type === "error") {
         setCalibrating(false);
         setCalibErr(String(msg.error ?? "Unknown error"));
@@ -965,7 +913,7 @@ function BlotterGrid({ approxReady, approxOverrides, requestApproximation, clear
     return cols;
   }, [apiCols, fmtDate]);
 
-  const [columns, setColumns] = React.useState<GridColDef<BlotterRow>[]>(initialColumns);
+  const [columns] = React.useState<GridColDef<BlotterRow>[]>(initialColumns);
   const [rows, setRows] = React.useState<BlotterRow[]>([]);
   const [rowCount, setRowCount] = React.useState(0);
   const [paginationModel, setPaginationModel] = React.useState<GridPaginationModel>({ page: 0, pageSize: 20 });

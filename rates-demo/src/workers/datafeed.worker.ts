@@ -70,7 +70,7 @@ function dfToJson(): any[] {
   );
   try {
     return JSON.parse(jsonStr);
-  } catch (e) {
+  } catch (_e) {
     return [];
   }
 }
