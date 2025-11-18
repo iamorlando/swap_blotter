@@ -93,10 +93,10 @@ function DatafeedPageInner() {
       latestCurveRef.current = null;
     }
   }, []);
+  const [fatalError, setFatalError] = React.useState<string | null>(null);
   const [data, setData] = React.useState<Array<{ Term: string; Rate: number }>>([]);
   const [ready, setReady] = React.useState(false);
   const [auto, setAuto] = React.useState(true);
-  const [, setError] = React.useState<string | null>(null);
   const [movedTerm, setMovedTerm] = React.useState<string | null>(null);
   const [moveDir, setMoveDir] = React.useState<"up" | "down" | "flat" | null>(null);
   const [seq, setSeq] = React.useState(0);
@@ -165,8 +165,8 @@ function DatafeedPageInner() {
       } else if (msg.type === "md") {
         console.log("[datafeed worker] md", msg.rows);
       } else if (msg.type === "error") {
-        setError(String(msg.error ?? "Unknown error"));
         console.error("[datafeed worker] error", msg.error);
+        setFatalError(String(msg.error ?? "Unknown error"));
       } else if (msg.type === "log") {
         console.log(`[datafeed worker] ${msg.message}`);
       }
@@ -790,17 +790,26 @@ const renderRateEditCell = React.useCallback((params: GridRenderEditCellParams) 
 
   return (
     <div className="min-h-screen bg-gray-950 text-gray-100">
-      <VerticalSplit top={Top} bottom={Bottom} initialTopHeight={520} />
-      {swapId && (
-        <Modal title={`Swap ${swapId}`}>
-          <SwapModalShell
-            swapId={swapId}
-            onClose={closeSwap}
-            swapRow={swapSnapshot}
-            riskRow={riskMapState[swapId] || null}
-            modalApprox={modalApprox}
-          />
-        </Modal>
+      {fatalError ? (
+        <div className="p-8 text-center text-red-300">
+          <div className="text-lg font-semibold mb-2">Datafeed error</div>
+          <div className="text-sm text-red-200">{fatalError}</div>
+        </div>
+      ) : (
+        <>
+          <VerticalSplit top={Top} bottom={Bottom} initialTopHeight={520} />
+          {swapId && (
+            <Modal title={`Swap ${swapId}`}>
+              <SwapModalShell
+                swapId={swapId}
+                onClose={closeSwap}
+                swapRow={swapSnapshot}
+                riskRow={riskMapState[swapId] || null}
+                modalApprox={modalApprox}
+              />
+            </Modal>
+          )}
+        </>
       )}
     </div>
   );
