@@ -2,28 +2,38 @@
 // the per-tenor changes returned by get_md_changes for each market tick.
 export {};
 
-const ctx: any = self as any;
+type MarketRow = { Term: string; Rate: number };
+type SwapRow = { ID: string; NPV: number; FixedRate: number; ParRate: number };
+type RiskRow = Record<string, number | string | null>;
+type MdChangeRow = { Term: string; Change: number };
+type PyProxy = { destroy?: () => void; toJs?: (opts?: { create_proxies?: boolean }) => unknown };
+type PyodideModule = {
+  runPython: (code: string) => unknown;
+  runPythonAsync: (code: string) => Promise<unknown>;
+  toPy: (val: unknown) => PyProxy;
+  loadPackage: (pkgs: string[]) => Promise<unknown>;
+  globals: { get: (name: string) => unknown; set: (name: string, val: unknown) => void };
+};
 
-let pyodide: any = null;
-let mdHelper: any = null;
-let approxHelper: any = null;
-let setBaseCurveFn: any = null;
+const ctx: DedicatedWorkerGlobalScope = self as unknown as DedicatedWorkerGlobalScope;
+
+let pyodide: PyodideModule | null = null;
+let mdHelper: ((rows: PyProxy) => PyProxy) | null = null;
+let approxHelper: ((swaps: PyProxy, risk: PyProxy, md: PyProxy) => PyProxy) | null = null;
+let setBaseCurveFn: ((rows: PyProxy) => void) | null = null;
 let initialized = false;
-let latestCurveRows: Array<{ Term: string; Rate: number }> | null = null;
-let latestSwaps: Array<any> | null = null;
-let latestRisk: Array<any> | null = null;
-let latestMdChanges: Array<any> | null = null;
-let baseCurveRows: Array<{ Term: string; Rate: number }> | null = null;
-
-function log(message: string) {
-  ctx.postMessage({ type: "log", source: "swapApprox", message });
-}
+let latestCurveRows: MarketRow[] | null = null;
+let latestSwaps: SwapRow[] | null = null;
+let latestRisk: RiskRow[] | null = null;
+let latestMdChanges: MdChangeRow[] | null = null;
+let baseCurveRows: MarketRow[] | null = null;
 
 async function init(baseUrl: string, datafeedUrl: string, approxUrl: string) {
   try {
     ctx.importScripts(`${baseUrl}pyodide.js`);
-    pyodide = await ctx.loadPyodide({ indexURL: baseUrl });
-    await pyodide.loadPackage(["numpy", "pandas"]);
+    const loaded = (await (ctx as any).loadPyodide({ indexURL: baseUrl })) as PyodideModule;
+    pyodide = loaded;
+    await loaded.loadPackage(["numpy", "pandas"]);
     const [dfRes, approxRes] = await Promise.all([
       fetch(datafeedUrl, { cache: "no-store" }),
       fetch(approxUrl, { cache: "no-store" }),
@@ -67,10 +77,10 @@ async function init(baseUrl: string, datafeedUrl: string, approxUrl: string) {
       + `        md_df = md_df.set_index('Term')\n`
       + `    return aproximate_swap_quotes(swaps_df, risk_df, md_df).to_dict(orient='records')\n`;
 
-    pyodide.runPython(bootstrap);
-    mdHelper = pyodide.globals.get("__md_from_market");
-    approxHelper = pyodide.globals.get("__approx_swaps");
-    setBaseCurveFn = pyodide.globals.get("__set_base_curve");
+    loaded.runPython(bootstrap);
+    mdHelper = loaded.globals.get("__md_from_market") as typeof mdHelper;
+    approxHelper = loaded.globals.get("__approx_swaps") as typeof approxHelper;
+    setBaseCurveFn = loaded.globals.get("__set_base_curve") as typeof setBaseCurveFn;
 
     // Fetch base curve once from API to seed original market data.
     try {
@@ -80,8 +90,8 @@ async function init(baseUrl: string, datafeedUrl: string, approxUrl: string) {
         const rows = seedJson?.rows || seedJson?.message?.rows || [];
         if (rows && rows.length) {
           baseCurveRows = rows;
-          const pyRows = pyodide.toPy(rows);
-          setBaseCurveFn(pyRows);
+          const pyRows = loaded.toPy(rows);
+          setBaseCurveFn?.(pyRows);
           if (typeof pyRows.destroy === "function") pyRows.destroy();
         }
       }
@@ -96,27 +106,28 @@ async function init(baseUrl: string, datafeedUrl: string, approxUrl: string) {
   }
 }
 
-function handleCurve(rows: Array<{ Term: string; Rate: number }>) {
+function handleCurve(rows: MarketRow[]) {
   if (!initialized || !mdHelper || !rows || !rows.length) {
     return;
   }
   latestCurveRows = rows;
-  let pyRows: any = null;
-  let resultProxy: any = null;
+  const py = pyodide;
+  let pyRows: PyProxy | null = null;
+  let resultProxy: PyProxy | null = null;
   try {
     // Ensure base curve is seeded at least once
     if (!baseCurveRows) {
       baseCurveRows = rows;
-      const basePy = pyodide.toPy(rows);
-      setBaseCurveFn(basePy);
+      const basePy = (py as PyodideModule).toPy(rows);
+      setBaseCurveFn?.(basePy);
       if (typeof basePy.destroy === "function") basePy.destroy();
     }
-    pyRows = pyodide.toPy(rows);
+    pyRows = (py as PyodideModule).toPy(rows);
     resultProxy = mdHelper(pyRows);
-    const arr = resultProxy.toJs({ create_proxies: false });
-    const plain = JSON.parse(JSON.stringify(arr));
-    latestMdChanges = plain;
-    ctx.postMessage({ type: "md", rows: plain });
+    const arr = resultProxy?.toJs?.({ create_proxies: false }) as MdChangeRow[] | undefined;
+    const plain = arr ? (JSON.parse(JSON.stringify(arr)) as MdChangeRow[]) : [];
+    latestMdChanges = plain.length ? plain : null;
+    ctx.postMessage({ type: "md", rows: latestMdChanges ?? [] });
   } catch (e) {
     ctx.postMessage({ type: "error", error: String(e) });
   } finally {
@@ -126,7 +137,7 @@ function handleCurve(rows: Array<{ Term: string; Rate: number }>) {
   tryApproximate();
 }
 
-function handleSwaps(swaps: any[], risk: any[]) {
+function handleSwaps(swaps: SwapRow[], risk: RiskRow[]) {
   // no need to get entire swap, just id and NPV
   latestSwaps = swaps && swaps.length ? swaps.map(s=>({
     ID: s.ID,
@@ -145,17 +156,18 @@ function tryApproximate() {
   if (!latestSwaps || !latestSwaps.length) return;
   if (!latestRisk || !latestRisk.length) return;
   if (!latestMdChanges || !latestMdChanges.length) return;
-  let swapsPy: any = null;
-  let riskPy: any = null;
-  let mdPy: any = null;
-  let resultProxy: any = null;
+  const py = pyodide as PyodideModule;
+  let swapsPy: PyProxy | null = null;
+  let riskPy: PyProxy | null = null;
+  let mdPy: PyProxy | null = null;
+  let resultProxy: PyProxy | null = null;
   try {
-    swapsPy = pyodide.toPy(latestSwaps);
-    riskPy = pyodide.toPy(latestRisk);
-    mdPy = pyodide.toPy(latestMdChanges);
+    swapsPy = py.toPy(latestSwaps);
+    riskPy = py.toPy(latestRisk);
+    mdPy = py.toPy(latestMdChanges);
     resultProxy = approxHelper(swapsPy, riskPy, mdPy);
-    const arr = resultProxy.toJs({ create_proxies: false });
-    const plain = JSON.parse(JSON.stringify(arr));
+    const arr = resultProxy?.toJs?.({ create_proxies: false }) as Record<string, unknown>[] | undefined;
+    const plain = arr ? (JSON.parse(JSON.stringify(arr)) as Record<string, unknown>[]) : [];
     ctx.postMessage({ type: "approx", rows: plain });
   } catch (e) {
     ctx.postMessage({ type: "error", error: String(e) });
@@ -175,8 +187,8 @@ ctx.onmessage = async (ev: MessageEvent) => {
     const approxUrl: string = msg.approxUrl || "/py/swap_approximation.py";
     await init(base, datafeedUrl, approxUrl);
   } else if (msg.type === "curve") {
-    handleCurve(msg.market as Array<{ Term: string; Rate: number }>);
+    handleCurve(msg.market as MarketRow[]);
   } else if (msg.type === "swaps") {
-    handleSwaps(msg.swaps as any[], msg.risk as any[]);
+    handleSwaps(msg.swaps as SwapRow[], msg.risk as RiskRow[]);
   }
 };
