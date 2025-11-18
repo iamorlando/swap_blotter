@@ -5,15 +5,7 @@ import pandas as pd
 from pandas import DataFrame
 
 # ---- Seed data (your curve) ----
-_source = DataFrame({
-    "Term": ["1W","2W","3W","1M","2M","3M","4M","5M","6M","7M","8M","9M",
-             "10M","11M","12M","18M","2Y","3Y","4Y","5Y","6Y","7Y","8Y",
-             "9Y","10Y","12Y","15Y","20Y","25Y","30Y","40Y"],
-    "Rate": [5.309,5.312,5.314,5.318,5.351,5.382,5.410,5.435,5.452,5.467,
-             5.471,5.470,5.467,5.457,5.445,5.208,4.990,4.650,4.458,4.352,
-             4.291,4.250,4.224,4.210,4.201,4.198,4.199,4.153,4.047,3.941,
-             3.719],
-}).set_index("Term").apply(lambda x: x/100.0)  # stored internally as decimals (e.g., 0.05309)
+_source = None  # must be set via set_source_from_rows before use
 
 # ---- Helpers to order tenors and work with neighbors ----
 def _to_years(term: str) -> float:
@@ -34,8 +26,8 @@ def _ordered(df: DataFrame) -> DataFrame:
     return out
 
 # ---- Mutable state ----
-_mut = _ordered(_source).drop(columns=["Years"])
-_terms = _mut.index.to_list()
+_mut = None
+_terms: list[str] = []
 
 # persistent global factor to induce correlation across tenors/time
 _global_factor = 0.0
@@ -44,11 +36,13 @@ _rng = np.random.default_rng()  # modern RNG
 # ---- Public API ----
 def get_datafeed() -> DataFrame:
     """Return the current full mutated curve (all terms)."""
+    _ensure_initialized()
     return _mut.copy()
 
 def reset_datafeed():
     """Reset the curve to the original seed state."""
     global _mut, _global_factor
+    _ensure_initialized()
     _mut = _ordered(_source).drop(columns=["Years"])
     _global_factor = 0.0
 
@@ -124,6 +118,7 @@ def simulate_tick(
     global _global_factor
 
     # pick tenor index
+    _ensure_initialized()
     label = term if term is not None else get_random_term()
     i = _terms.index(label)
 
@@ -170,3 +165,23 @@ def get_updated_datafeed() -> DataFrame:
 #     print("moved:", term, "->", new_rate)
 #     print(get_datafeed().loc[[term]])
 #     time.sleep(0.1)
+def set_source_from_rows(rows: list[dict]):
+    """
+    Initialize the global curve from list of {'Term','Rate'} rows.
+    Rates are expected in percent; we store decimals internally.
+    """
+    global _source, _mut, _terms, _global_factor
+    df = DataFrame(rows)
+    if df.empty or "Term" not in df.columns or "Rate" not in df.columns:
+        raise ValueError("set_source_from_rows: invalid data")
+    df["Rate"] = df["Rate"].astype(float) / 100.0
+    df = df.set_index("Term")
+    _source = df
+    ordered = _ordered(_source).drop(columns=["Years"])
+    _mut = ordered.copy()
+    _terms = _mut.index.to_list()
+    _global_factor = 0.0
+
+def _ensure_initialized():
+    if _source is None or _mut is None or not len(_terms):
+        raise RuntimeError("datafeed source not initialized; call set_source_from_rows first")

@@ -27,10 +27,20 @@ async function init(baseUrl: string, pythonUrl: string) {
     ctx.importScripts(`${baseUrl}pyodide.js`);
     pyodide = await ctx.loadPyodide({ indexURL: baseUrl });
     await pyodide.loadPackage(["numpy", "pandas"]);
-    const res = await fetch(pythonUrl, { cache: "no-store" });
+    const [res, mdRes] = await Promise.all([
+      fetch(pythonUrl, { cache: "no-store" }),
+      fetch("/api/md/latest", { cache: "no-store" }),
+    ]);
     if (!res.ok) throw new Error(`Failed to fetch ${pythonUrl}: ${res.status}`);
-    const code = await res.text();
+    if (!mdRes.ok) throw new Error(`Failed to fetch latest market data: ${mdRes.status}`);
+    const [code, mdJson] = await Promise.all([res.text(), mdRes.json()]);
     pyodide.runPython(code);
+    const rows = mdJson?.rows || [];
+    if (!rows.length) throw new Error("latest market data empty");
+    const pyRows = pyodide.toPy(rows);
+    pyodide.globals.set("rows_for_source", pyRows);
+    pyodide.runPython("set_source_from_rows(rows_for_source)");
+    if (typeof pyRows.destroy === "function") pyRows.destroy();
     initialized = true;
     try {
       const initJson: string = pyodide.runPython(
@@ -164,7 +174,7 @@ function scheduleNext(_intervalMs: number) {
 ctx.onmessage = async (ev: MessageEvent) => {
   const msg = ev.data || {};
   if (msg.type === "init") {
-    const base: string = msg.baseUrl || "https://cdn.jsdelivr.net/pyodide/v0.26.1/full/";
+    const base: string = msg.baseUrl || "https://cdn.jsdelivr.net/pyodide/v0.29.0/full/";
     const pyUrl: string = msg.pythonUrl || "/py/datafeed.py";
     await init(base, pyUrl);
   } else if (msg.type === "get") {

@@ -169,7 +169,7 @@ export default function DatafeedPage() {
         console.log(`[datafeed worker] ${msg.message}`);
       }
     };
-    w.postMessage({ type: "init", baseUrl: "https://cdn.jsdelivr.net/pyodide/v0.26.1/full/", pythonUrl: "/py/datafeed.py" });
+    w.postMessage({ type: "init", baseUrl: "https://cdn.jsdelivr.net/pyodide/v0.29.0/full/", pythonUrl: "/py/datafeed.py" });
     return () => {
       if (auto) w.postMessage({ type: "stopAuto" });
       w.terminate();
@@ -212,7 +212,7 @@ export default function DatafeedPage() {
         console.log(`[approx worker] ${msg.message}`);
       }
     };
-    w.postMessage({ type: "init", baseUrl: "https://cdn.jsdelivr.net/pyodide/v0.26.1/full/", datafeedUrl: "/py/datafeed.py", approxUrl: "/py/swap_approximation.py" });
+    w.postMessage({ type: "init", baseUrl: "https://cdn.jsdelivr.net/pyodide/v0.29.0/full/", datafeedUrl: "/py/datafeed.py", approxUrl: "/py/swap_approximation.py" });
     return () => {
       approxReadyRef.current = false;
       setApproxReady(false);
@@ -709,7 +709,7 @@ const renderRateEditCell = React.useCallback((params: GridRenderEditCellParams) 
         setCalibErr(String(msg.error ?? "Unknown error"));
       }
     };
-    w.postMessage({ type: "init", baseUrl: "https://cdn.jsdelivr.net/pyodide/v0.26.1/full/", datafeedUrl: "/py/datafeed.py", calibrationUrl: "/py/curve_calibration.py" });
+    w.postMessage({ type: "init", baseUrl: "https://cdn.jsdelivr.net/pyodide/v0.29.0/full/", datafeedUrl: "/py/datafeed.py", calibrationUrl: "/py/curve_calibration.py" });
     return () => {
       w.terminate();
       calibRef.current = null;

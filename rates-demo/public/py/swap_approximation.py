@@ -1,7 +1,7 @@
 import pandas as pd
 from pandas import DataFrame
 from typing import Optional
-from .datafeed import _source
+
 
 
 
@@ -13,7 +13,7 @@ def get_md_changes(
         data = data.set_index("Term")[['Rate']]
     else:
         data = data.reset_index().set_index("Term")[['Rate']]
-    base_frame = original_curve if original_curve is not None else _source
+    base_frame = original_curve
     if 'Term' in base_frame.columns:
         base_frame = base_frame.set_index("Term")[['Rate']]
     else:
@@ -23,9 +23,8 @@ def get_md_changes(
     return delta_pct.loc[allowed_terms].rename(columns={"Rate": "Change"})
 
 
-def aproximate_swap_quotes(swaps_df: DataFrame, risk_df: DataFrame, new_data: DataFrame) -> DataFrame:
-    global _source
-    term_cols = _source.index
+def aproximate_swap_quotes(swaps_df: DataFrame, risk_df: DataFrame, md_changes_df:DataFrame) -> DataFrame:
+    term_cols = md_changes_df.index.tolist()
     if risk_df is None or risk_df.empty:
         return swaps_df
 
@@ -38,8 +37,6 @@ def aproximate_swap_quotes(swaps_df: DataFrame, risk_df: DataFrame, new_data: Da
     risk_df = risk_df.reindex(swaps_df["ID"]).fillna(0.0)
     npvs = swaps_df["NPV"].to_numpy(dtype="float64")
     risk = risk_df[[f'c_{i}' for i in list(term_cols)]].to_numpy(dtype="float64")
-    base_curve = _source.reset_index()
-    md_changes_df = get_md_changes(new_data, base_curve)
     changes = md_changes_df.loc[term_cols, "Change"].to_numpy(dtype="float64")
     new_npvs = npvs + (risk*10_000 @ changes)
     swaps_df["NPV"] = new_npvs

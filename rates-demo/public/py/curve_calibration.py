@@ -7,97 +7,102 @@ import numpy as np
 # https://rateslib.com/py/en/2.0.x/z_swpm.html
 # Changes: adjusted inputs, renamed variables, simplified output.
 # rateslib is MIT Licensed: https://github.com/sonofeft/rateslib/blob/main/LICENSE
-from rateslib import add_tenor, dt, Curve, Solver, IRS, dcf
+from rateslib import add_tenor, dt, Curve, Solver, IRS, dcf, from_json
 from datetime import datetime, timedelta
-from .datafeed import _source
 
-VAL_DATE_STR = globals().get("VAL_DATE_STR")
-if VAL_DATE_STR:
-    try:
-        _y, _m, _d = map(int, str(VAL_DATE_STR).split("-"))
-        valuation_date = dt(_y, _m, _d)
-    except Exception:
-        today = datetime.now().date()
-        valuation_date = dt(today.year, today.month, today.day)
-else:
-    today = datetime.now().date()
-    valuation_date = dt(today.year, today.month, today.day)
+valuation_date:datetime
+sofr: Curve | None = None  # to be set via set_curve_from_json
+sofr_json: str | None = None
 
-maturities = [add_tenor(valuation_date, _, "F", "nyc") for _ in _source.index]
-terms = _source.index.to_list()
-sofr = Curve(
-    id="sofr",
-    convention="Act360",
-    calendar="nyc",
-    modifier="MF",
-    interpolation="log_linear",
-    nodes={
-        **{valuation_date: 1.0},
-        **{_: 1.0 for _ in maturities},
-    },
-)
-sofr_json = sofr.to_json()
 
-def calibrate_curve(data: DataFrame) -> DataFrame:
-    global sofr
-    global maturities
+
+def set_curve_from_json(json_str: str):
+    """
+    Initialize the global rateslib curve from stored calibration JSON.
+    """
+    global sofr, sofr_json, valuation_date
+    sofr = from_json(json_str)
+    valuation_date = sofr.nodes.keys[0]
+    sofr_json = json_str
+    return sofr
+
+
+def calibrate_curve(data: DataFrame) -> str:
+    """
+    Calibrate the stored curve using market data rows [{Term, Rate}].
+    Rates are expected in decimals (0.053 -> 5.3%).
+    """
     global sofr_json
-    _ = Solver(
+    df = data.copy()
+    if not {"Term", "Rate"}.issubset(df.columns):
+        raise ValueError("calibrate_curve: data must have Term and Rate columns")
+    df["Rate"] = df["Rate"].astype(float)
+    terms = list(df["Term"])
+    maturities = [add_tenor(valuation_date, t, "F", "nyc") for t in terms]
+    Solver(
         curves=[sofr],
-        instruments=[
-            IRS(valuation_date, _, spec="usd_irs", curves="sofr") for _ in maturities
-        ],
-        s=data["Rate"]  *100,
-        instrument_labels=data["Term"],
+        instruments=[IRS(valuation_date, m, spec="usd_irs", curves="sofr") for m in maturities],
+        s=df["Rate"] * 100,  # rateslib expects percents
+        instrument_labels=terms,
         id="us_rates",
     )
     sofr_json = sofr.to_json()
-
     return sofr_json
 
 
-display_terms = ["1B",
-                 "2B",
-                 "7D",
-                 "1M",
-                 "3M",
-                 "6M",
-                 "1Y",
-                 "2Y",
-                 "3Y",
-                 "5Y",
-                 "7Y",
-                 "10Y",
-                 "20Y",
-                 "30Y",
-                 "40Y"]
+display_terms = [
+    "1B",
+    "2B",
+    "7D",
+    "1M",
+    "3M",
+    "6M",
+    "1Y",
+    "2Y",
+    "3Y",
+    "5Y",
+    "7Y",
+    "10Y",
+    "20Y",
+    "30Y",
+    "40Y",
+]
+
+
 def get_discount_factor_curve() -> pd.DataFrame:
-    global sofr
-    global display_terms
     return pd.DataFrame(
         columns=["df", "term"],
-        data=[(float(sofr[add_tenor(valuation_date, display_terms[i], "F", "nyc")]), display_terms[i]) for i in range(len(display_terms))],
+        data=[
+            (float(sofr[add_tenor(valuation_date, t, "F", "nyc")]), t)
+            for t in display_terms
+        ],
     ).set_index("term")
+
 
 def get_zero_rate_curve() -> pd.DataFrame:
-    global sofr
-    global valuation_date
-    global display_terms
     return pd.DataFrame(
         columns=["zero_rate", "term"],
-        data=[(100*(np.log(sofr[add_tenor(valuation_date,display_terms[i], "F", "nyc")].real)/-dcf(valuation_date, add_tenor(valuation_date,display_terms[i], "F", "nyc"),'act360')), display_terms[i]) for i in range(len(display_terms))],
+        data=[
+            (
+                100
+                * (
+                    np.log(sofr[add_tenor(valuation_date, t, "F", "nyc")].real)
+                    / -dcf(valuation_date, add_tenor(valuation_date, t, "F", "nyc"), "act360")
+                ),
+                t,
+            )
+            for t in display_terms
+        ],
     ).set_index("term")
 
+
 def get_forward_rate_curve() -> pd.DataFrame:
-    global sofr
-    global display_terms
-    global valuation_date
-    terms = display_terms
-    maturities = [add_tenor(valuation_date, terms[i], "F", "nyc") for i in range(len(terms))]
-    forwards =[(float(sofr.rate(maturities[i] - timedelta(days=1), maturities[i]))) for i in range(len(maturities))]
-    days =[(maturities[i] - valuation_date).days for i in range(len(maturities))]
-    new_terms = terms
+    maturities = [add_tenor(valuation_date, t, "F", "nyc") for t in display_terms]
+    forwards = [float(sofr.rate(m - timedelta(days=1), m)) for m in maturities]
+    days = [(m - valuation_date).days for m in maturities]
     return pd.DataFrame(
-        columns=["forward_rate","days", "term"],
-        data=[(forwards[i], days[i], display_terms[i]) for i in range(len(new_terms))],
+        columns=["forward_rate", "days", "term"],
+        data=[
+            (forwards[i], days[i], display_terms[i]) for i in range(len(display_terms))
+        ],
     ).set_index("term")

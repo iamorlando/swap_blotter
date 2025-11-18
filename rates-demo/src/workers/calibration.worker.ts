@@ -12,6 +12,10 @@ async function init(baseUrl: string, datafeedUrl: string, calibUrl: string) {
     ctx.importScripts(`${baseUrl}pyodide.js`);
     pyodide = await ctx.loadPyodide({ indexURL: baseUrl });
     await pyodide.loadPackage(["numpy", "pandas", "micropip"]);
+    const calRes = await fetch("/api/calibration/latest", { cache: "no-store" });
+    if (!calRes.ok) throw new Error("Failed to fetch latest calibration");
+    const calJson = await calRes.json();
+    const calStr = calJson?.json;
     // install rateslib (pure-python)
     await pyodide.runPythonAsync(
       "import micropip; await micropip.install('rateslib')"
@@ -44,9 +48,16 @@ async function init(baseUrl: string, datafeedUrl: string, calibUrl: string) {
       + `m_swap = types.ModuleType('py.swap_approximation'); m_swap.__package__='py'\n`
       + `exec(compile(r'''${escapeForPyExec(swapCode)}''', 'py/swap_approximation.py', 'exec'), m_swap.__dict__)\n`
       + `sys.modules['py.swap_approximation'] = m_swap\n`
-      + `from py.curve_calibration import calibrate_curve, get_discount_factor_curve, get_zero_rate_curve, get_forward_rate_curve\n`;
+      + `from py.curve_calibration import calibrate_curve, get_discount_factor_curve, get_zero_rate_curve, get_forward_rate_curve, set_curve_from_json\n`;
 
     pyodide.runPython(bootstrap);
+    if (calStr) {
+      // Avoid double-escaping by passing the JSON through globals
+      pyodide.globals.set("calibration_json_str", calStr);
+      pyodide.runPython("set_curve_from_json(calibration_json_str)");
+      // cleanup
+      pyodide.runPython("del calibration_json_str");
+    }
     initialized = true;
     ctx.postMessage({ type: "ready" });
   } catch (e) {
@@ -59,7 +70,7 @@ function escapeForPyExec(code: string): string { return code.replace(/\\/g, "\\\
 ctx.onmessage = async (ev: MessageEvent) => {
   const msg = ev.data || {};
   if (msg.type === "init") {
-    const base: string = msg.baseUrl || "https://cdn.jsdelivr.net/pyodide/v0.26.1/full/";
+    const base: string = msg.baseUrl || "https://cdn.jsdelivr.net/pyodide/v0.29.0/full/";
     const datafeedUrl: string = msg.datafeedUrl || "/py/datafeed.py";
     const calibUrl: string = msg.calibrationUrl || "/py/curve_calibration.py";
     await init(base, datafeedUrl, calibUrl);

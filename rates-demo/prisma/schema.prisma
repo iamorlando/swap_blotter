@@ -142,7 +142,7 @@ model Fixing {
 model Calibration {
   curve_id  String
   json      String?
-  timestamp DateTime?
+  timestamp DateTime
 
   @@id([curve_id, timestamp])
   @@map("calibrations")
@@ -154,9 +154,9 @@ model OneDimensionalMarketData {
   Rate            Float?
   Termination     DateTime?
   quote_type      String?
-  curve_id        String?
+  curve_id        String
   instrument_spec String?
-  quote_time      DateTime?
+  quote_time      DateTime
 
   @@id([Term, curve_id, quote_time])
   @@map("one_dimensional_market_data")
