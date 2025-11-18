@@ -110,6 +110,9 @@ function DatafeedPageInner() {
   const chartBoxRef = React.useRef<HTMLDivElement | null>(null);
   const [chartSize, setChartSize] = React.useState({ width: 0, height: 0 });
   const pointDragRef = React.useRef(false);
+  // Show frosted overlays until each section has first data
+  const [showMarketOverlay, setShowMarketOverlay] = React.useState(true);
+  const [showCalibOverlay, setShowCalibOverlay] = React.useState(true);
   const normalizeRateInput = React.useCallback((val: any, fallback: number) => {
     const num = Number(val);
     if (!Number.isFinite(num)) return fallback;
@@ -162,6 +165,7 @@ function DatafeedPageInner() {
         console.log("[datafeed worker] tick", curveRows?.length);
         setData(curveRows);
         pushApproxMarket(curveRows);
+        if (showMarketOverlay) setShowMarketOverlay(false);
         if (msg.movedTerm) {
           setMovedTerm(msg.movedTerm as string);
           setMoveDir((msg.dir as any) || "flat");
@@ -182,7 +186,7 @@ function DatafeedPageInner() {
       w.terminate();
       workerRef.current = null;
     };
-  }, [pushApproxMarket]);
+  }, [pushApproxMarket, showMarketOverlay]);
 
   const swapIdRef = React.useRef<string | null>(null);
 
@@ -673,6 +677,7 @@ const renderRateEditCell = React.useCallback((params: GridRenderEditCellParams) 
         setCalibReady(true);
       } else if (msg.type === "curves") {
         setCalibrating(false);
+        if (showCalibOverlay) setShowCalibOverlay(false);
         setDiscount(msg.discount as any[]);
         setZero(msg.zero as any[]);
         const fw = (msg.forward as any[]).map((r: any) => ({ term: r.term, days: r.days, forward_rate: r.forward_rate }));
@@ -687,7 +692,7 @@ const renderRateEditCell = React.useCallback((params: GridRenderEditCellParams) 
       w.terminate();
       calibRef.current = null;
     };
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const recalibrate = () => {
     if (!calibReady) return;
@@ -702,10 +707,16 @@ const renderRateEditCell = React.useCallback((params: GridRenderEditCellParams) 
       setCalibrating(true);
       calibRef.current?.postMessage({ type: "recalibrate", market: data });
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [calibReady, autoCalibrated, data]);
 
   const RightPanel = (
-    <div className="p-6 space-y-4 min-w-[320px]">
+    <div className={`relative p-6 space-y-4 min-w-[320px] ${showCalibOverlay ? "overflow-hidden" : ""}`}>
+      {showCalibOverlay && (
+        <div className="absolute inset-0 z-10 backdrop-blur-sm bg-gray-900/50 flex items-center justify-center text-gray-200 text-sm">
+          Loading calibration...
+        </div>
+      )}
       <div className="flex items-center justify-between">
         <div className="text-sm text-gray-400">{calibErr ? <span className="text-red-500">{calibErr}</span> : calibReady ? "calibration ready" : "loading rateslib..."}</div>
         <button onClick={recalibrate} disabled={!calibReady || calibrating} className="inline-flex items-center rounded-md border border-blue-500/40 bg-blue-500/10 px-3 py-1.5 text-blue-300 hover:bg-blue-500/20 focus:outline-none focus:ring-2 focus:ring-blue-500/50 disabled:opacity-50">
@@ -782,11 +793,18 @@ const renderRateEditCell = React.useCallback((params: GridRenderEditCellParams) 
   );
 
   const Top = (
-    <HorizontalSplit left={LeftPanel} right={RightPanel} initialLeftPct={0.33} />
+    <div className="relative">
+      {showMarketOverlay && (
+        <div className="absolute inset-0 z-10 pointer-events-none backdrop-blur-sm bg-gray-900/50 flex items-center justify-center text-gray-200 text-sm">
+          Loading market data...
+        </div>
+      )}
+      <HorizontalSplit left={LeftPanel} right={RightPanel} initialLeftPct={0.33} />
+    </div>
   );
 
   const Bottom = (
-    <div className="p-4 space-y-2">
+    <div className="relative p-4 space-y-2">
       <div className="text-sm text-gray-300">Blotter</div>
       <BlotterGrid
         approxReady={approxReady}
