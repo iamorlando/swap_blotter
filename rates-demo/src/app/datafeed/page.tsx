@@ -997,7 +997,6 @@ function BlotterGrid({ approxReady, approxOverrides, requestApproximation, clear
       requestApprox(baseRows).catch((err) => console.error("[blotter] approx", err));
     } catch (err) {
       console.error("[blotter] fetch", err);
-      setError(String(err));
     } finally {
       setLoading(false);
     }
