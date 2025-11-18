@@ -944,7 +944,7 @@ function BlotterGrid({ approxReady, approxOverrides, requestApproximation, clear
       cols[idx] = {
         ...cols[idx],
         headerName: generatedIdField || cols[idx].headerName,
-        renderCell: (params) => <SwapLink id={params.value} row={params.row as BlotterRow} onOpenSwap={onOpenSwap} />,
+        renderCell: (params) => <SwapLink id={params?.value} row={params.row as BlotterRow} onOpenSwap={onOpenSwap} />,
         width: 180,
       } as GridColDef<BlotterRow>;
     }
@@ -955,8 +955,14 @@ function BlotterGrid({ approxReady, approxOverrides, requestApproximation, clear
       headerName: "Notional",
       width: 180,
       sortable: false,
-      valueFormatter: (p: any) => (p.value == null ? "" : `USD ${usd.format(Math.abs(Number(p.value))).replace("$", "$ ")}`),
-      renderCell: (p: any) => <span>{p.value == null ? "" : `USD ${usd.format(Math.abs(Number(p.value))).replace("$", "$ ")}`}</span>,
+      valueFormatter: (p: any) => {
+        const val = p?.value;
+        return val == null ? "" : `USD ${usd.format(Math.abs(Number(val))).replace("$", "$ ")}`;
+      },
+      renderCell: (p: any) => {
+        const val = p?.value;
+        return <span>{val == null ? "" : `USD ${usd.format(Math.abs(Number(val))).replace("$", "$ ")}`}</span>;
+      },
       align: "right",
     };
     if (nIdx >= 0) cols[nIdx] = { ...cols[nIdx], ...notionalCol };
