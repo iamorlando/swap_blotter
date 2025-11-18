@@ -58,7 +58,7 @@ const RateEditCellComponent = React.memo(function RateEditCellComponent(params: 
   );
 });
 
-export default function DatafeedPage() {
+function DatafeedPageInner() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -803,6 +803,14 @@ const renderRateEditCell = React.useCallback((params: GridRenderEditCellParams) 
         </Modal>
       )}
     </div>
+  );
+}
+
+export default function DatafeedPage() {
+  return (
+    <React.Suspense fallback={null}>
+      <DatafeedPageInner />
+    </React.Suspense>
   );
 }
 
