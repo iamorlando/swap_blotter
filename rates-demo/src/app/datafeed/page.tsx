@@ -1003,7 +1003,7 @@ const renderRateEditCell = React.useCallback((params: GridRenderEditCellParams) 
                 swapId={swapId}
                 onClose={closeSwap}
                 swapRow={swapSnapshot}
-                riskRow={modalRisk}
+                riskData={modalRisk}
                 modalApprox={modalApprox}
               />
             </Modal>

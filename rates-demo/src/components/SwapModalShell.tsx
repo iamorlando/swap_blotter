@@ -9,11 +9,11 @@ type SwapModalShellProps = {
   swapId: string;
   onClose: () => void;
   swapRow: BlotterRow | null;
-  riskRow: any;
+  riskData?: any;
   modalApprox: any;
 };
 
-export function SwapModalShell({ swapId, onClose, swapRow, riskRow: _riskRow, modalApprox }: SwapModalShellProps) {
+export function SwapModalShell({ swapId, onClose, swapRow, riskData, modalApprox }: SwapModalShellProps) {
   const [tab, setTab] = React.useState<"pricing" | "cashflows" | "fixings" | "risk">("pricing");
   React.useEffect(() => { setTab("pricing"); }, [swapId]);
 
@@ -51,13 +51,13 @@ export function SwapModalShell({ swapId, onClose, swapRow, riskRow: _riskRow, mo
   );
 
   const riskRow = React.useMemo(() => {
-    if (!_riskRow) return null;
+    if (!riskData) return null;
     const out: Record<string, any> = {};
-    Object.entries(_riskRow).forEach(([k, v]) => {
+    Object.entries(riskData).forEach(([k, v]) => {
       out[k] = typeof v === "bigint" ? Number(v) : v;
     });
     return out;
-  }, [_riskRow]);
+  }, [riskData]);
 
   const riskGrid = React.useMemo(() => {
     if (!riskRow) return { cols: [], rows: [], dvo1: 0 };
