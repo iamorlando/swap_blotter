@@ -82,7 +82,7 @@ ctx.onmessage = async (ev: MessageEvent) => {
       // Build DataFrame in Python
       pyodide.runPython(`import pandas as pd\nimport json\ndata = pd.DataFrame(json.loads(r'''${jsonStr}'''))`);
       // Calibrate
-      pyodide.runPython("calibrate_curve(data)");
+      const curveJson = pyodide.runPython("calibrate_curve(data)");
       // Extract curves as JSON strings
       const discount = pyodide.runPython(
         "import json\njson.dumps(get_discount_factor_curve().reset_index().to_dict(orient='records'))"
@@ -94,6 +94,7 @@ ctx.onmessage = async (ev: MessageEvent) => {
         "import json\njson.dumps(get_forward_rate_curve().reset_index().to_dict(orient='records'))"
       );
       ctx.postMessage({ type: "curves", discount: JSON.parse(discount), zero: JSON.parse(zero), forward: JSON.parse(forward) });
+      ctx.postMessage({ type: "curve_update", curveJson, market });
     } catch (e) {
       ctx.postMessage({ type: "error", error: String(e) });
     }

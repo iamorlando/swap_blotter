@@ -26,13 +26,21 @@ async function init(baseUrl: string, detailsUrl: string) {
     if (!swapDetailsCodeRes.ok) throw new Error("failed to fetch swap_details.py");
     const swapDetailsCode = await swapDetailsCodeRes.text();
 
-    const bootstrap = `
+const bootstrap = `
 import types, sys
 pkg = types.ModuleType('py'); pkg.__path__ = []; sys.modules['py'] = pkg
 m_details = types.ModuleType('py.swap_details'); m_details.__package__='py'
 exec(compile(${JSON.stringify(swapDetailsCode)}, 'py/swap_details.py', 'exec'), m_details.__dict__)
 sys.modules['py.swap_details'] = m_details
-from py.swap_details import set_swap_context, get_swap_risk, get_inclusive_fixings_date_bounds, set_fixings, hydrate_swap,get_swap_fixing_index_name
+from py.swap_details import (
+    set_swap_context,
+    get_swap_risk,
+    get_inclusive_fixings_date_bounds,
+    set_fixings,
+    hydrate_swap,
+    get_swap_fixing_index_name,
+    update_curve_in_context,
+)
 `;
 
     pyodide.runPython(bootstrap);
@@ -114,6 +122,27 @@ else:
     set_fixings(pd.Series(dtype=float))
 hydrate_swap()
 del swap_fixings_payload_json
+`
+      );
+      const riskJson = pyodide.runPython("import json\njson.dumps(get_swap_risk().to_dict())");
+      ctx.postMessage({ type: "risk", swapId: msg.swapId, risk: JSON.parse(riskJson) });
+    } catch (e) {
+      ctx.postMessage({ type: "error", swapId: msg.swapId, error: String(e) });
+    }
+  } else if (msg.type === "updateCurve") {
+    if (!initialized) return;
+    try {
+      const curveJson: string = msg.curveJson || "";
+      const mdJson = JSON.stringify(msg.market || []);
+      pyodide.globals.set("swap_curve_update_json", curveJson);
+      pyodide.runPython(
+        `
+import pandas as pd, json
+md_obj = json.loads(r'''${escapeForPyExec(mdJson)}''')
+cal_md = pd.DataFrame(md_obj)
+update_curve_in_context(swap_curve_update_json, cal_md)
+hydrate_swap()
+del swap_curve_update_json
 `
       );
       const riskJson = pyodide.runPython("import json\njson.dumps(get_swap_risk().to_dict())");

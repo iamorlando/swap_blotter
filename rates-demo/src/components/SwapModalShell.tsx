@@ -11,9 +11,10 @@ type SwapModalShellProps = {
   swapRow: BlotterRow | null;
   riskData?: any;
   modalApprox: any;
+  onFullReval?: () => void;
 };
 
-export function SwapModalShell({ swapId, onClose, swapRow, riskData, modalApprox }: SwapModalShellProps) {
+export function SwapModalShell({ swapId, onClose, swapRow, riskData, modalApprox, onFullReval }: SwapModalShellProps) {
   const [tab, setTab] = React.useState<"pricing" | "cashflows" | "fixings" | "risk">("pricing");
   React.useEffect(() => { setTab("pricing"); }, [swapId]);
 
@@ -118,7 +119,13 @@ export function SwapModalShell({ swapId, onClose, swapRow, riskData, modalApprox
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <button className="px-3 py-1.5 rounded-md border border-gray-700 bg-gray-800 text-gray-100 hover:bg-gray-700">Full reval</button>
+          <button
+            onClick={onFullReval}
+            disabled={!onFullReval}
+            className="px-3 py-1.5 rounded-md border border-gray-700 bg-gray-800 text-gray-100 hover:bg-gray-700 disabled:opacity-50"
+          >
+            Full reval
+          </button>
           <button onClick={onClose} className="px-3 py-1.5 rounded-md border border-gray-700 bg-gray-900 text-gray-300 hover:bg-gray-800">Close</button>
         </div>
       </div>

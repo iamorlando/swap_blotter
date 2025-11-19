@@ -92,6 +92,9 @@ function DatafeedPageInner() {
   const [riskMapState, setRiskMapState] = React.useState<Record<string, any>>({});
   const riskMapRef = React.useRef<Record<string, any>>({});
   const [modalApprox, setModalApprox] = React.useState<any>(null);
+  React.useEffect(() => {
+    swapSnapshotRef.current = swapSnapshot;
+  }, [swapSnapshot]);
   const updateRiskMap = React.useCallback((next: Record<string, any>) => {
     riskMapRef.current = next;
     setRiskMapState(next);
@@ -123,6 +126,9 @@ function DatafeedPageInner() {
   const chartBoxRef = React.useRef<HTMLDivElement | null>(null);
   const [chartSize, setChartSize] = React.useState({ width: 0, height: 0 });
   const pointDragRef = React.useRef(false);
+  const latestCurveJsonRef = React.useRef<string | null>(null);
+  const latestCurveMarketRef = React.useRef<Array<{ Term: string; Rate: number }>>([]);
+  const swapSnapshotRef = React.useRef<BlotterRow | null>(null);
   const linkPauseRef = React.useRef(false);
   const activeSwapId = swapId;
   // Show frosted overlays until each section has first data
@@ -841,6 +847,19 @@ const renderRateEditCell = React.useCallback((params: GridRenderEditCellParams) 
         setZero(msg.zero as any[]);
         const fw = (msg.forward as any[]).map((r: any) => ({ term: r.term, days: r.days, forward_rate: r.forward_rate }));
         setForwardAnchors(fw);
+      } else if (msg.type === "curve_update") {
+        const curveJson = typeof msg.curveJson === "string" ? msg.curveJson : null;
+        const marketRows = Array.isArray(msg.market) ? msg.market : [];
+        latestCurveJsonRef.current = curveJson;
+        latestCurveMarketRef.current = marketRows;
+        if (curveJson && swapSnapshotRef.current && detailsRef.current) {
+          detailsRef.current.postMessage({
+            type: "updateCurve",
+            curveJson,
+            market: marketRows,
+            swapId: swapIdRef.current,
+          });
+        }
       } else if (msg.type === "error") {
         setCalibrating(false);
         setCalibErr(String(msg.error ?? "Unknown error"));
@@ -1005,6 +1024,7 @@ const renderRateEditCell = React.useCallback((params: GridRenderEditCellParams) 
                 swapRow={swapSnapshot}
                 riskData={modalRisk}
                 modalApprox={modalApprox}
+                onFullReval={recalibrate}
               />
             </Modal>
           )}
