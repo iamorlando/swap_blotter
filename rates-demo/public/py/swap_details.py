@@ -115,6 +115,16 @@ def set_fixings(fixings_series: pd.Series):
     swap_context['fixings'] = fixings_series
     return fixings_series
 
+def update_curve_in_context(json_str: str,curve_md:pd.DataFrame):
+    global swap_context
+    swap_context['curve'] = from_json(json_str)
+    swap_context['curve_json'] = json_str
+    swap_context['calibration_md'] = curve_md
+    swap_context['solver'] = form_solver(
+        json_str,
+        list(curve_md['Term']),
+        curve_md
+    )
 def get_swap_risk():
     risk_tbl = swap_context['swap'].delta(solver=swap_context['solver'])
     terms = [i[-1] for i in risk_tbl.index]
