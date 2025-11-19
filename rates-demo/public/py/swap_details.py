@@ -125,6 +125,15 @@ def update_curve_in_context(json_str: str,curve_md:pd.DataFrame):
         list(curve_md['Term']),
         curve_md
     )
+    revalue_swap()
+def revalue_swap():
+    global swap_context
+    swp:IRS = swap_context['swap']
+    solver:Solver = swap_context['solver']
+    npv = swp.npv(solver=solver).real
+    parrate = swp.rate(solver=solver).real
+    swap_context['swap_row']['NPV'] = npv
+    swap_context['swap_row']['ParRate'] = parrate
 def get_swap_risk():
     risk_tbl = swap_context['swap'].delta(solver=swap_context['solver'])
     terms = [i[-1] for i in risk_tbl.index]
@@ -132,3 +141,4 @@ def get_swap_risk():
     # ones = np.ones(len(terms))
     # dummy_df = pd.Series(data=ones,index=terms)
     # return dummy_df
+
