@@ -101,6 +101,11 @@ def hydrate_swap():
     swap_context['swap'] = swp
     
     return swp
+def get_current_swap_price()->pd.Series:
+    global swap_context
+    npv = swap_context['swap_row']['NPV']
+    parrate = swap_context['swap_row']['ParRate']
+    return pd.Series({'NPV':npv,'ParRate':parrate})
 
 def set_fixings(fixings_series: pd.Series):
     global swap_context

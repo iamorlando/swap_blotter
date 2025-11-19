@@ -40,6 +40,7 @@ from py.swap_details import (
     hydrate_swap,
     get_swap_fixing_index_name,
     update_curve_in_context,
+    get_current_swap_price,
 )
 `;
 
@@ -125,7 +126,8 @@ del swap_fixings_payload_json
 `
       );
       const riskJson = pyodide.runPython("import json\njson.dumps(get_swap_risk().to_dict())");
-      ctx.postMessage({ type: "risk", swapId: msg.swapId, risk: JSON.parse(riskJson) });
+      const swapRowJson = pyodide.runPython("import json\njson.dumps(get_current_swap_price().to_dict())");
+      ctx.postMessage({ type: "risk", swapId: msg.swapId, risk: JSON.parse(riskJson), swap: JSON.parse(swapRowJson) });
     } catch (e) {
       ctx.postMessage({ type: "error", swapId: msg.swapId, error: String(e) });
     }
@@ -146,7 +148,8 @@ del swap_curve_update_json
 `
       );
       const riskJson = pyodide.runPython("import json\njson.dumps(get_swap_risk().to_dict())");
-      ctx.postMessage({ type: "risk", swapId: msg.swapId, risk: JSON.parse(riskJson) });
+      const swapRowJson = pyodide.runPython("import json\njson.dumps(get_current_swap_price().to_dict())");
+      ctx.postMessage({ type: "risk", swapId: msg.swapId, risk: JSON.parse(riskJson), swap: JSON.parse(swapRowJson) });
     } catch (e) {
       ctx.postMessage({ type: "error", swapId: msg.swapId, error: String(e) });
     }

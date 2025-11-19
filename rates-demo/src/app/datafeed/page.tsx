@@ -86,6 +86,7 @@ function DatafeedPageInner() {
   const [approxReady, setApproxReady] = React.useState(false);
   const [approxOverrides, setApproxOverrides] = React.useState<Record<string, any>>({});
   const [swapSnapshot, setSwapSnapshot] = React.useState<BlotterRow | null>(null);
+  const [modalSwapRow, setModalSwapRow] = React.useState<BlotterRow | null>(null);
   const detailsRef = React.useRef<Worker | null>(null);
   const [detailsReady, setDetailsReady] = React.useState(false);
   const [modalRisk, setModalRisk] = React.useState<any | null>(null);
@@ -93,11 +94,15 @@ function DatafeedPageInner() {
   const riskMapRef = React.useRef<Record<string, any>>({});
   const [modalApprox, setModalApprox] = React.useState<any>(null);
   React.useEffect(() => {
-    swapSnapshotRef.current = swapSnapshot;
-  }, [swapSnapshot]);
+    swapSnapshotRef.current = modalSwapRow ?? swapSnapshot;
+  }, [modalSwapRow, swapSnapshot]);
   const updateRiskMap = React.useCallback((next: Record<string, any>) => {
     riskMapRef.current = next;
     setRiskMapState(next);
+  }, []);
+  const handleOpenSwap = React.useCallback((row: BlotterRow) => {
+    setSwapSnapshot(row);
+    setModalSwapRow(row);
   }, []);
   const pushApproxMarket = React.useCallback((rows: Array<{ Term: string; Rate: number }>) => {
     if (rows && rows.length) {
@@ -309,6 +314,7 @@ function DatafeedPageInner() {
     if (!activeSwapId) {
       setModalApprox(null);
       setModalRisk(null);
+       setModalSwapRow(null);
       return;
     }
     const existing = approxOverrides[activeSwapId];
@@ -409,6 +415,7 @@ function DatafeedPageInner() {
       } else if (msg.type === "risk") {
         if (msg.swapId && msg.swapId !== swapIdRef.current) return;
         setModalRisk(msg.risk || null);
+        if (msg.swap) setModalSwapRow(modalSwapRow => ({ ...modalSwapRow, ...msg.swap }) as BlotterRow);
       } else if (msg.type === "error") {
         console.error("[swap details worker] error", msg.error);
       }
@@ -986,14 +993,14 @@ const renderRateEditCell = React.useCallback((params: GridRenderEditCellParams) 
 
   const Bottom = (
     <div className="relative p-4 space-y-2">
-      <div className="text-sm text-gray-300">Blotter</div>
+      {/* <div className="text-sm text-gray-300">Blotter</div> */}
       <BlotterGrid
         approxReady={approxReady}
         approxOverrides={approxOverrides}
         requestApproximation={requestApproximation}
         clearApproximation={clearApproximation}
         hasCurveData={data.length > 0}
-        onOpenSwap={setSwapSnapshot}
+        onOpenSwap={handleOpenSwap}
         onPauseTicks={pauseTicksForLink}
         onResumeTicks={resumeTicksForLink}
         onRiskMapUpdate={updateRiskMap}
@@ -1021,7 +1028,7 @@ const renderRateEditCell = React.useCallback((params: GridRenderEditCellParams) 
               <SwapModalShell
                 swapId={swapId}
                 onClose={closeSwap}
-                swapRow={swapSnapshot}
+                swapRow={modalSwapRow ?? swapSnapshot}
                 riskData={modalRisk}
                 modalApprox={modalApprox}
                 onFullReval={recalibrate}
