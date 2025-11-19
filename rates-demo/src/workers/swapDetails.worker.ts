@@ -25,18 +25,27 @@ function serializeSwapRow(): Record<string, unknown> | null {
 function computeFixedFlows(rows?: MarketRow[]): any[] {
   if (!pyodide) return [];
   const payload = Array.isArray(rows) ? rows.map((r) => ({ Term: String(r.Term), Rate: Number(r.Rate) })) : null;
-  const baseCode = `out = get_fixed_flows(${payload && payload.length ? 'md' : ''})\n` +
-    `out = out.reset_index(drop=True) if hasattr(out, 'reset_index') else out\n` +
-    `for col in out.columns:\n` +
-    `    if hasattr(out[col], 'dt'):\n` +
-    `        out[col] = out[col].astype(str)\n` +
-    `json.dumps(out.to_dict(orient='records'))`;
   const pyCode = payload && payload.length
     ? `import pandas as pd, json\nmd = pd.DataFrame(json.loads(r'''${escapeForPyExec(JSON.stringify(payload))}'''))\n` +
-      `md['Rate'] = md['Rate'].astype(float)\n` + baseCode
-    : `import pandas as pd, json\n` + baseCode.replace('(md)', '()');
+      `md['Rate'] = md['Rate'].astype(float)\n` +
+      `out = get_fixed_flows(md)\n` +
+      `out = out.reset_index(drop=True) if hasattr(out, 'reset_index') else out\n` +
+      `if hasattr(out, 'columns'):\n` +
+      `    for col in out.columns:\n` +
+      `        ser = out[col]\n` +
+      `        if hasattr(ser, 'dt'):\n` +
+      `            out[col] = ser.astype(str)\n` +
+      `json.dumps(out.to_dict(orient='records'))`
+    : `import pandas as pd, json\nout = get_fixed_flows()\n` +
+      `out = out.reset_index(drop=True) if hasattr(out, 'reset_index') else out\n` +
+      `if hasattr(out, 'columns'):\n` +
+      `    for col in out.columns:\n` +
+      `        ser = out[col]\n` +
+      `        if hasattr(ser, 'dt'):\n` +
+      `            out[col] = ser.astype(str)\n` +
+      `json.dumps(out.to_dict(orient='records'))`;
   try {
-    if (payload) console.log("[swap details worker] fixed flow md rows", payload.length);
+    if (payload) console.log("[swap details worker] fixed flow payload", payload);
     const result = runPy(pyCode);
     return result ? JSON.parse(result as string) : [];
   } catch (err) {

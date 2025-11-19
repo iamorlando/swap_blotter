@@ -38,12 +38,15 @@ def calibrate_curve(data: DataFrame) -> str:
         raise ValueError("calibrate_curve: data must have Term and Rate columns")
     df["Rate"] = df["Rate"].astype(float)
     terms = list(df["Term"])
-    maturities = [add_tenor(valuation_date, t, "F", "nyc") for t in terms]
+    df['maturity'] = [add_tenor(valuation_date, t, "F", "nyc") for t in terms]
+    df = df.set_index('maturity').sort_index(ascending=True)
+    maturities = df.index
+    df = df.reset_index().set_index('Term')
     Solver(
         curves=[sofr],
         instruments=[IRS(valuation_date, m, spec="usd_irs", curves="sofr") for m in maturities],
         s=df["Rate"] * 100,  # rateslib expects percents
-        instrument_labels=terms,
+        instrument_labels=df.index.tolist(),
         id="us_rates",
     )
     sofr_json = sofr.to_json()

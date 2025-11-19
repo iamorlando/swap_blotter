@@ -920,8 +920,8 @@ const renderRateEditCell = React.useCallback((params: GridRenderEditCellParams) 
   }, [calibReady, autoCalibrated, data]);
 
   const RightPanel = (
-    <div className={`relative p-6 space-y-4 min-w-[320px] ${showCalibOverlay ? "overflow-hidden" : ""}`}>
-      {showCalibOverlay && (
+    <div className="relative p-6 space-y-4 min-w-[320px]">
+      {showCalibOverlay && !calibErr && (
         <div className="absolute inset-0 z-10 backdrop-blur-sm bg-gray-900/50 flex items-center justify-center text-gray-200 text-sm">
           Loading calibration...
         </div>

@@ -71,7 +71,7 @@ export function SwapModalShell({ swapId, onClose, swapRow, riskData, modalApprox
     Object.entries(riskRow).forEach(([key, val]) => {
       if (key === "R" || key === "PricingTime" || key === "z" || key.toLowerCase() === "rowtype" || key.toLowerCase() === "id") return;
       const num = typeof val === "number" ? val : Number(val);
-      if (!Number.isFinite(num) || Number.isNaN(num) || Math.abs(num) < 1e-4 || num === 0) return;
+      if (!Number.isFinite(num) || Number.isNaN(num) || Math.abs(num) < 1e-10 || num === 0) return;
       const term = key.startsWith("c_") ? key.slice(2) : key;
       entries.push({ term, exposure: num });
     });

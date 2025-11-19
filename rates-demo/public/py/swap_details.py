@@ -158,7 +158,6 @@ def revalue_swap():
     swap_context['swap_row']['ParRate'] = parrate
     save_swap_fixed_base_flows()
 def get_swap_risk():
-
     risk_tbl = swap_context.setdefault('swap',build_swap(swap_context['swap_row'])).delta(solver=swap_context['solver'])
     terms = [i[-1] for i in risk_tbl.index]
     return pd.Series(data=risk_tbl.values.squeeze(),index=terms)
