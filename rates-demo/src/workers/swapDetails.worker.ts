@@ -149,6 +149,7 @@ del swap_curve_update_json
       );
       const riskJson = pyodide.runPython("import json\njson.dumps(get_swap_risk().to_dict())");
       const swapRowJson = pyodide.runPython("import json\njson.dumps(get_current_swap_price().to_dict())");
+      console.log("swaprowjson", swapRowJson);
       ctx.postMessage({ type: "risk", swapId: msg.swapId, risk: JSON.parse(riskJson), swap: JSON.parse(swapRowJson) });
     } catch (e) {
       ctx.postMessage({ type: "error", swapId: msg.swapId, error: String(e) });

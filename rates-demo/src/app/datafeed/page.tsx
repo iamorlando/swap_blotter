@@ -96,14 +96,24 @@ function DatafeedPageInner() {
   React.useEffect(() => {
     swapSnapshotRef.current = modalSwapRow ?? swapSnapshot;
   }, [modalSwapRow, swapSnapshot]);
-  const updateRiskMap = React.useCallback((next: Record<string, any>) => {
-    riskMapRef.current = next;
-    setRiskMapState(next);
-  }, []);
   const handleOpenSwap = React.useCallback((row: BlotterRow) => {
     setSwapSnapshot(row);
     setModalSwapRow(row);
   }, []);
+
+  const applyModalSwapUpdate = React.useCallback((updates: Record<string, unknown>) => {
+    if (!updates) return;
+    setModalSwapRow((prev) => {
+      const base = prev ?? swapSnapshot ?? ({} as BlotterRow);
+      return { ...base, ...updates } as BlotterRow;
+    });
+  }, [swapSnapshot]);
+
+  const updateRiskMap = React.useCallback((next: Record<string, any>) => {
+    riskMapRef.current = next;
+    setRiskMapState(next);
+  }, []);
+
   const pushApproxMarket = React.useCallback((rows: Array<{ Term: string; Rate: number }>) => {
     if (rows && rows.length) {
       latestCurveRef.current = rows;
@@ -314,7 +324,7 @@ function DatafeedPageInner() {
     if (!activeSwapId) {
       setModalApprox(null);
       setModalRisk(null);
-       setModalSwapRow(null);
+      setModalSwapRow(null);
       return;
     }
     const existing = approxOverrides[activeSwapId];
@@ -415,7 +425,7 @@ function DatafeedPageInner() {
       } else if (msg.type === "risk") {
         if (msg.swapId && msg.swapId !== swapIdRef.current) return;
         setModalRisk(msg.risk || null);
-        if (msg.swap) setModalSwapRow(modalSwapRow => ({ ...modalSwapRow, ...msg.swap }) as BlotterRow);
+        if (msg.swap) applyModalSwapUpdate(msg.swap as Record<string, unknown>);
       } else if (msg.type === "error") {
         console.error("[swap details worker] error", msg.error);
       }
@@ -430,7 +440,7 @@ function DatafeedPageInner() {
       w.removeEventListener("message", onMessage);
       detailsRef.current = null;
     };
-  }, []);
+  }, [applyModalSwapUpdate]);
 
   const clearApproximation = React.useCallback(() => {
     setApproxOverrides({});

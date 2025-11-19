@@ -69,8 +69,24 @@ def get_inclusive_fixings_date_bounds():
     start_date = cal.add_bus_days(swap_context['swap_row']['StartDate'],-1,True)
     return (start_date,end_date)
 
+def get_fixed_cashflows()->pd.DataFrame:
+    global swap_context
+    swap:IRS = swap_context['swap']
+    curve:Curve = swap_context['curve']
+    cfs = swap.leg1.cashflows(curve=curve)
+    return cfs[['Period','Ccy','Acc Start','Acc End','Payment','DCF','Notional','DF','Rate','Cashflow','NPV',]].rename(columns={'Acc Start':'Accrual Start','Acc End':'Accrual End','Payment':'Payment Date','DCF':'Accrual Fraction','DF':'Discount Factor'})
+def get_floating_cashflows()->pd.DataFrame:
+    global swap_context
+    swap:IRS = swap_context['swap']
+    curve:Curve = swap_context['curve']
+    cfs = swap.leg2.cashflows(curve=curve)
+    return cfs[['Period','Ccy','Acc Start','Acc End','Payment','DCF','Notional','DF','Rate','Cashflow','NPV',]].rename(columns={'Acc Start':'Accrual Start','Acc End':'Accrual End','Payment':'Payment Date','DCF':'Accrual Fraction','DF':'Discount Factor'})
+
+
 def update_calibration_json_and_md(curve_json:str,calibration_md:pd.DataFrame):
     global swap_context
+    swap_context['swap_row']['NPV'] = 0.0
+    swap_context['swap_row']['ParRate'] = 0.0
     swap_context['curve'] = from_json(curve_json)
     swap_context['valuation_date'] = pd.to_datetime(swap_context['curve'].nodes.keys[0]).tz_localize(None)
     if 'StartDate' in swap_context['swap_row']:
@@ -99,6 +115,7 @@ def hydrate_swap():
     global swap_context 
     swp = build_swap(swap_context['swap_row'])
     swap_context['swap'] = swp
+    revalue_swap()
     
     return swp
 def get_current_swap_price()->pd.Series:
@@ -139,6 +156,7 @@ def revalue_swap():
     parrate = swp.rate(solver=solver).real
     swap_context['swap_row']['NPV'] = npv
     swap_context['swap_row']['ParRate'] = parrate
+    save_swap_fixed_base_flows()
 def get_swap_risk():
     risk_tbl = swap_context['swap'].delta(solver=swap_context['solver'])
     terms = [i[-1] for i in risk_tbl.index]
@@ -146,4 +164,41 @@ def get_swap_risk():
     # ones = np.ones(len(terms))
     # dummy_df = pd.Series(data=ones,index=terms)
     # return dummy_df
+def form_risk_matrix(deltas:List[pd.DataFrame],referenced_base_length:int=0)->np.ndarray:
+    arr = np.zeros((len(deltas),referenced_base_length))
+    for i,d in enumerate(deltas):
+        arr[i] = d.to_numpy().squeeze()
+    return arr
 
+def get_df_sensitivities(duals:List[Dual])->pd.DataFrame:
+    global swap_context
+    solver:Solver = swap_context['solver']
+    currency = 'USD' # TODO TIE TO rateslib defaults, get that from swap row (convert SOFR to usd_irs spec)
+    dualsdict = [{currency:d} for d in duals]
+    dfs = [solver.delta(d) for d in dualsdict]
+    return form_risk_matrix(dfs,referenced_base_length=len(dfs[0].index))
+
+def save_swap_fixed_base_flows():
+    global swap_context
+    swp = swap_context['swap']
+    solver = swap_context['solver']
+    calibrated_curve = swap_context['curve']
+    valuation_date = swap_context['valuation_date']
+    l1_dfs = [calibrated_curve[d.payment] for d in swp.leg1.periods if d.payment > valuation_date]
+    flows =get_fixed_cashflows()
+    swap_context['fixed_leg']['dfs'] = np.array([df.real for df in l1_dfs])
+    swap_context['fixed_leg']['cashflows'] = flows
+    swap_context['fixed_leg']['df_sensitivities'] = get_df_sensitivities(l1_dfs)
+
+def get_fixed_flows(new_md:pd.DataFrame=None)->pd.DataFrame:
+    global swap_context
+    if new_md is None:
+        new_md = swap_context['calibration_md']*0
+    md_changes = new_md-swap_context['calibration_md']
+    updated_dfs = swap_context['fixed_leg']['dfs']+(swap_context['fixed_leg']['df_sensitivities']@md_changes*100)
+    # swap_context['fixed_leg']['cashflows']['Discount Factor'] = updated_dfs
+    updated_npvs = updated_dfs*swap_context['fixed_leg']['cashflows']['Cashflow']
+    df = swap_context['fixed_leg']['cashflows'].copy()
+    df['Discount Factor'] = updated_dfs
+    df['NPV'] = updated_npvs
+    return df
