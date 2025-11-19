@@ -32,7 +32,7 @@ pkg = types.ModuleType('py'); pkg.__path__ = []; sys.modules['py'] = pkg
 m_details = types.ModuleType('py.swap_details'); m_details.__package__='py'
 exec(compile(${JSON.stringify(swapDetailsCode)}, 'py/swap_details.py', 'exec'), m_details.__dict__)
 sys.modules['py.swap_details'] = m_details
-from py.swap_details import set_swap_context, get_swap_risk
+from py.swap_details import set_swap_context, get_swap_risk, get_inclusive_fixings_date_bounds, hydrate_swap,get_swap_fixing_index_name
 `;
 
     pyodide.runPython(bootstrap);
@@ -55,17 +55,14 @@ ctx.onmessage = async (ev: MessageEvent) => {
     if (!initialized) return;
     try {
       const swapJson = JSON.stringify(msg.swap || {});
-      const fixingsJson = JSON.stringify(msg.fixings || []);
       const mdJson = JSON.stringify(msg.market || []);
       const curveJson: string = msg.curveJson || "";
-      // Build swap context and compute risk in Python
       pyodide.globals.set("swap_curve_json", curveJson);
-      pyodide.runPython(
+      const infoJson = pyodide.runPython(
         `
 import json, pandas as pd
 swap_row_obj = json.loads(r'''${escapeForPyExec(swapJson)}''')
 md_obj = json.loads(r'''${escapeForPyExec(mdJson)}''')
-fixings_obj = json.loads(r'''${escapeForPyExec(fixingsJson)}''')
 swap_row = pd.Series(swap_row_obj)
 if 'StartDate' in swap_row and swap_row['StartDate'] is not None:
     swap_row['StartDate'] = pd.to_datetime(swap_row['StartDate'])
@@ -73,22 +70,48 @@ if 'TerminationDate' in swap_row and swap_row['TerminationDate'] is not None:
     swap_row['TerminationDate'] = pd.to_datetime(swap_row['TerminationDate'])
 cal_md = pd.DataFrame(md_obj)
 set_swap_context(swap_row, swap_curve_json, cal_md)
-if fixings_obj:
-    fix_df = pd.DataFrame(fixings_obj)
+info = {'index': get_swap_fixing_index_name(), 'bounds': [dt.isoformat() for dt in get_inclusive_fixings_date_bounds()]}
+del swap_curve_json
+json.dumps(info)
+`
+      ) as string;
+      const info = infoJson ? (JSON.parse(infoJson) as { index?: string; bounds?: string[] }) : {};
+      let fixings: Array<{ date: string; value: number | null }> = [];
+      if (info?.index && Array.isArray(info.bounds) && info.bounds.length === 2) {
+        const params = new URLSearchParams({
+          index: info.index,
+          start: info.bounds[0],
+          end: info.bounds[1],
+        });
+        try {
+          const resp = await fetch(`/api/fixings?${params.toString()}`);
+          if (resp.ok) {
+            const data = await resp.json();
+            fixings = Array.isArray(data.rows) ? data.rows : [];
+          } else {
+            console.error("[swap details worker] fixings fetch", resp.status);
+          }
+        } catch (err) {
+          console.error("[swap details worker] fixings fetch", err);
+        }
+      }
+      pyodide.globals.set("swap_fixings_payload", fixings);
+      pyodide.runPython(
+        `
+import pandas as pd
+fix_df = pd.DataFrame(swap_fixings_payload)
+if not fix_df.empty:
     if 'date' in fix_df.columns:
         fix_df['date'] = pd.to_datetime(fix_df['date'])
         fix_df = fix_df.set_index('date').sort_index()
-    bounds = get_inclusive_fixings_date_bounds()
-    if len(bounds) == 2:
-        start_dt, end_dt = bounds
-        fix_df = fix_df.loc[(fix_df.index >= start_dt) & (fix_df.index <= end_dt)]
     set_fixings(fix_df.squeeze())
+else:
+    set_fixings(pd.Series(dtype=float))
 hydrate_swap()
-del swap_curve_json
+del swap_fixings_payload
 `
       );
       const riskJson = pyodide.runPython("import json\njson.dumps(get_swap_risk().to_dict())");
-      console.log("swap risk computed:", riskJson);
       ctx.postMessage({ type: "risk", swapId: msg.swapId, risk: JSON.parse(riskJson) });
     } catch (e) {
       ctx.postMessage({ type: "error", swapId: msg.swapId, error: String(e) });

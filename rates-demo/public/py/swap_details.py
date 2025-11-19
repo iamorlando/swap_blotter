@@ -7,6 +7,16 @@ from datetime import datetime
 
 swap_context: Dict = {}
 
+def _to_naive(ts_val):
+    ts = pd.to_datetime(ts_val)
+    for fn in ("tz_convert", "tz_localize"):
+        try:
+            ts = getattr(ts, fn)(None)
+            break
+        except Exception:
+            continue
+    return ts
+
 def build_swap(row: pd.Series) -> IRS:
     global swap_context
     valuation_date = swap_context['valuation_date']
@@ -34,10 +44,15 @@ def build_swap(row: pd.Series) -> IRS:
 def set_swap_context(swap_row:pd.Series,curve_json:str,calibration_md:pd.DataFrame):
     global swap_context
     swap_context = {}
+    # Normalize dates to naive datetimes (rateslib expects tz-naive)
+    if 'StartDate' in swap_row:
+        swap_row['StartDate'] = _to_naive(swap_row['StartDate'])
+    if 'TerminationDate' in swap_row:
+        swap_row['TerminationDate'] = _to_naive(swap_row['TerminationDate'])
     swap_context['swap_row'] = swap_row
     swap_context['curve_json'] = curve_json
     swap_context['curve']= from_json(curve_json)
-    swap_context['valuation_date'] = swap_context['curve'].nodes.keys[0]
+    swap_context['valuation_date'] = _to_naive(swap_context['curve'].nodes.keys[0])
     swap_context['calibration_md'] = calibration_md
     swap_context['fixings'] = pd.Series(dtype=float)
     swap_context['solver'] = form_solver(
@@ -57,7 +72,11 @@ def get_inclusive_fixings_date_bounds():
 def update_calibration_json_and_md(curve_json:str,calibration_md:pd.DataFrame):
     global swap_context
     swap_context['curve'] = from_json(curve_json)
-    swap_context['valuation_date'] = swap_context['curve'].nodes.keys[0]
+    swap_context['valuation_date'] = pd.to_datetime(swap_context['curve'].nodes.keys[0]).tz_localize(None)
+    if 'StartDate' in swap_context['swap_row']:
+        swap_context['swap_row']['StartDate'] = _to_naive(swap_context['swap_row']['StartDate'])
+    if 'TerminationDate' in swap_context['swap_row']:
+        swap_context['swap_row']['TerminationDate'] = _to_naive(swap_context['swap_row']['TerminationDate'])
     swap_context['calibration_md'] = calibration_md
     swap_context['solver'] = form_solver(
         curve_json,
@@ -89,6 +108,10 @@ def set_fixings(fixings_series: pd.Series):
         fixings_series = fixings_series.squeeze()
     if not isinstance(fixings_series, pd.Series):
         fixings_series = pd.Series(dtype=float)
+    try:
+        fixings_series.index = _to_naive(fixings_series.index)
+    except Exception:
+        pass
     swap_context['fixings'] = fixings_series
     return fixings_series
 
