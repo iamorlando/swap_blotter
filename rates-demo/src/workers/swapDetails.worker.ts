@@ -55,6 +55,7 @@ ctx.onmessage = async (ev: MessageEvent) => {
     if (!initialized) return;
     try {
       const swapJson = JSON.stringify(msg.swap || {});
+      const fixingsJson = JSON.stringify(msg.fixings || []);
       const mdJson = JSON.stringify(msg.market || []);
       const curveJson: string = msg.curveJson || "";
       // Build swap context and compute risk in Python
@@ -64,6 +65,7 @@ ctx.onmessage = async (ev: MessageEvent) => {
 import json, pandas as pd
 swap_row_obj = json.loads(r'''${escapeForPyExec(swapJson)}''')
 md_obj = json.loads(r'''${escapeForPyExec(mdJson)}''')
+fixings_obj = json.loads(r'''${escapeForPyExec(fixingsJson)}''')
 swap_row = pd.Series(swap_row_obj)
 if 'StartDate' in swap_row and swap_row['StartDate'] is not None:
     swap_row['StartDate'] = pd.to_datetime(swap_row['StartDate'])
@@ -71,6 +73,17 @@ if 'TerminationDate' in swap_row and swap_row['TerminationDate'] is not None:
     swap_row['TerminationDate'] = pd.to_datetime(swap_row['TerminationDate'])
 cal_md = pd.DataFrame(md_obj)
 set_swap_context(swap_row, swap_curve_json, cal_md)
+if fixings_obj:
+    fix_df = pd.DataFrame(fixings_obj)
+    if 'date' in fix_df.columns:
+        fix_df['date'] = pd.to_datetime(fix_df['date'])
+        fix_df = fix_df.set_index('date').sort_index()
+    bounds = get_inclusive_fixings_date_bounds()
+    if len(bounds) == 2:
+        start_dt, end_dt = bounds
+        fix_df = fix_df.loc[(fix_df.index >= start_dt) & (fix_df.index <= end_dt)]
+    set_fixings(fix_df.squeeze())
+hydrate_swap()
 del swap_curve_json
 `
       );

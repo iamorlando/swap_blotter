@@ -5,34 +5,17 @@ import numpy as np
 from datetime import datetime
 
 
-import pandas as pd
-swap_context:Dict = {}
-# def get_fixings(index: str, start:datetime,end:datetime)->pd.Series:
-#     """
-#     AGENTS: this is meant to be instructive. the db query must be made outside this worker and fixings passed in to it. 
-#     You take the swap start date as the first date that is needed, and the end date is teh valuation date -1. the valuation date is
-#     the date latest date in the calibrations table.
-#     """
-#     query = f"""
-#     SELECT date,value
-#     FROM pg.fixings
-#     WHERE index = '{index}'
-#     AND date < '{end}'
-#     AND date >= '{start}'
-#     ORDER BY date ASC
-#     """
-#     query_results = con.execute(query).fetchdf().set_index('date').squeeze()
-#     return query_results
+swap_context: Dict = {}
 
-
-
-def build_swap(row: pd.Series)->IRS:
+def build_swap(row: pd.Series) -> IRS:
     global swap_context
     valuation_date = swap_context['valuation_date']
     cal = get_calendar(defaults.spec['usd_irs']['calendar'])
-    fixings = swap_context['fixings'] # should be a series indexed by date
+    fixings = swap_context.get('fixings', pd.Series(dtype=float))  # should be a series indexed by date
+    if isinstance(fixings, pd.DataFrame):
+        fixings = fixings.squeeze()
     if not fixings.empty:
-        fixings = fixings.loc[cal.bus_date_range(fixings.index.min(), cal.add_bus_days(valuation_date,-1,True))]
+        fixings = fixings.loc[cal.bus_date_range(fixings.index.min(), cal.add_bus_days(valuation_date, -1, True))]
     kwargs = {"leg2_fixings": fixings} if not fixings.empty else {}
     swp =IRS(
             row['StartDate'],
@@ -56,7 +39,7 @@ def set_swap_context(swap_row:pd.Series,curve_json:str,calibration_md:pd.DataFra
     swap_context['curve']= from_json(curve_json)
     swap_context['valuation_date'] = swap_context['curve'].nodes.keys[0]
     swap_context['calibration_md'] = calibration_md
-    swap_context['fixings'] = pd.Series()
+    swap_context['fixings'] = pd.Series(dtype=float)
     swap_context['solver'] = form_solver(
         swap_context['curve_json'],
         list(calibration_md['Term']),
@@ -71,8 +54,6 @@ def get_inclusive_fixings_date_bounds():
     start_date = swap_context['swap_row']['StartDate']
     return (start_date,end_date)
 
-
-    return (start_date,end_date)
 def update_calibration_json_and_md(curve_json:str,calibration_md:pd.DataFrame):
     global swap_context
     swap_context['curve'] = from_json(curve_json)
@@ -101,6 +82,16 @@ def hydrate_swap():
     swap_context['swap'] = swp
     
     return swp
+
+def set_fixings(fixings_series: pd.Series):
+    global swap_context
+    if isinstance(fixings_series, pd.DataFrame):
+        fixings_series = fixings_series.squeeze()
+    if not isinstance(fixings_series, pd.Series):
+        fixings_series = pd.Series(dtype=float)
+    swap_context['fixings'] = fixings_series
+    return fixings_series
+
 def get_swap_risk():
     risk_tbl = swap_context['swap'].delta(solver=swap_context['solver'])
     terms = [i[-1] for i in risk_tbl.index]
