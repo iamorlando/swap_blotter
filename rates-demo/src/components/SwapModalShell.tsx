@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { DataGrid, GridColDef } from "@mui/x-data-grid";
+import { GridColDef } from "@mui/x-data-grid";
 
 export type BlotterRow = Record<string, unknown> & { id: string | number };
 
@@ -100,25 +100,9 @@ export function SwapModalShell({ swapId, onClose, swapRow, riskData, modalApprox
     );
   };
 
-  const fixedFlowColumns = React.useMemo<GridColDef<any>[]>(() => {
+  const fixedFlowColumns = React.useMemo(() => {
     if (!fixedFlows || !fixedFlows.length) return [];
-    const sample = fixedFlows[0];
-    return Object.keys(sample).map((key) => ({
-      field: key,
-      headerName: key,
-      flex: 1,
-      valueFormatter: (params) => {
-        const val = params?.value;
-        if (typeof val === "number") {
-          return Number.isInteger(val) ? val : Number(val).toFixed(6);
-        }
-        return val == null ? "" : String(val);
-      },
-    }));
-  }, [fixedFlows]);
-
-  const fixedFlowRows = React.useMemo(() => {
-    return fixedFlows?.map((row, idx) => ({ id: idx, ...row })) ?? [];
+    return Object.keys(fixedFlows[0]);
   }, [fixedFlows]);
 
   return (
@@ -204,21 +188,35 @@ export function SwapModalShell({ swapId, onClose, swapRow, riskData, modalApprox
             {cashflowSubTab === "floating" ? (
               <div className="text-gray-500 text-sm">Floating cashflows coming soon.</div>
             ) : (
-              <div className="h-64">
-                <DataGrid
-                  rows={fixedFlowRows}
-                  columns={fixedFlowColumns}
-                  density="compact"
-                  disableColumnMenu
-                  hideFooter
-                  sx={{
-                    color: "#e5e7eb",
-                    border: 0,
-                    "& .MuiDataGrid-columnHeaders": { backgroundColor: "#0b1220" },
-                    "& .MuiDataGrid-row": { backgroundColor: "#111827" },
-                    "& .MuiDataGrid-cell": { borderColor: "#1f2937" },
-                  }}
-                />
+              <div className="h-64 overflow-auto rounded-md border border-gray-800 bg-gray-950/60">
+                <table className="w-full text-xs text-gray-200">
+                  <thead className="sticky top-0 bg-gray-900 border-b border-gray-800">
+                    <tr>
+                      {fixedFlowColumns.map((col) => (
+                        <th key={col} className="px-3 py-2 text-left font-medium text-gray-300">{col}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {fixedFlows && fixedFlows.length ? fixedFlows.map((row, idx) => (
+                      <tr key={idx} className="border-b border-gray-800">
+                        {fixedFlowColumns.map((col) => {
+                          const val = row[col];
+                          const display = typeof val === "number"
+                            ? (Math.abs(val) < 1e-4 ? val.toExponential(4) : val.toLocaleString(undefined, { maximumFractionDigits: 6 }))
+                            : (val == null ? "" : String(val));
+                          return (
+                            <td key={col} className="px-3 py-2 whitespace-nowrap">{display}</td>
+                          );
+                        })}
+                      </tr>
+                    )) : (
+                      <tr>
+                        <td colSpan={fixedFlowColumns.length || 1} className="px-3 py-4 text-center text-gray-500">No fixed cashflows available.</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
               </div>
             )}
           </div>
