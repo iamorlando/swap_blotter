@@ -99,11 +99,44 @@ export function SwapModalShell({ swapId, onClose, swapRow, riskData, modalApprox
       </div>
     );
   };
+  const formatFlowValue = (v: any) => {
+    if (typeof v === "number") {
+      if (Math.abs(v) >= 1e4) return v.toLocaleString(undefined, { maximumFractionDigits: 2 });
+      if (Math.abs(v) < 1e-4 && v !== 0) return v.toExponential(4);
+      return v.toFixed(6).replace(/0+$/, "").replace(/\.$/, "") || "0";
+    }
+    return v == null ? "" : String(v);
+  };
 
+  const prevFixedFlowsRef = React.useRef<Record<string, number>>({});
   const fixedFlowColumns = React.useMemo(() => {
     if (!fixedFlows || !fixedFlows.length) return [];
     return Object.keys(fixedFlows[0]);
   }, [fixedFlows]);
+  const annotatedFixedFlows = React.useMemo(() => {
+    const rows: Array<Record<string, any>> = [];
+    const nextPrev: Record<string, number> = {};
+    fixedFlows.forEach((row, idx) => {
+      const entry: Record<string, any> = { ...row, __delta: {} };
+      fixedFlowColumns.forEach((col) => {
+        const val = row[col];
+        if (typeof val === "number") {
+          const key = `${idx}-${col}`;
+          const prev = prevFixedFlowsRef.current[key];
+          let dir: "up" | "down" | "flat" = "flat";
+          if (prev != null) {
+            if (val > prev + 1e-10) dir = "up";
+            else if (val < prev - 1e-10) dir = "down";
+          }
+          entry.__delta[col] = dir;
+          nextPrev[key] = val;
+        }
+      });
+      rows.push(entry);
+    });
+    prevFixedFlowsRef.current = nextPrev;
+    return rows;
+  }, [fixedFlows, fixedFlowColumns]);
 
   return (
     <div className="space-y-4 text-sm text-gray-200">
@@ -198,15 +231,19 @@ export function SwapModalShell({ swapId, onClose, swapRow, riskData, modalApprox
                     </tr>
                   </thead>
                   <tbody>
-                    {fixedFlows && fixedFlows.length ? fixedFlows.map((row, idx) => (
+                    {annotatedFixedFlows.length ? annotatedFixedFlows.map((row, idx) => (
                       <tr key={idx} className="border-b border-gray-800">
                         {fixedFlowColumns.map((col) => {
                           const val = row[col];
-                          const display = typeof val === "number"
-                            ? (Math.abs(val) < 1e-4 ? val.toExponential(4) : val.toLocaleString(undefined, { maximumFractionDigits: 6 }))
-                            : (val == null ? "" : String(val));
+                          const delta = row.__delta?.[col] ?? "flat";
+                          const color = delta === "up" ? "text-green-400" : delta === "down" ? "text-red-400" : "text-gray-200";
+                          const flash = delta === "up" ? "flash-up" : delta === "down" ? "flash-down" : "";
+                          const arrow = delta === "up" ? "▲" : delta === "down" ? "▼" : "";
                           return (
-                            <td key={col} className="px-3 py-2 whitespace-nowrap">{display}</td>
+                            <td key={col} className={`px-3 py-2 whitespace-nowrap font-mono ${color} ${flash}`}>
+                              {arrow && <span className="mr-1">{arrow}</span>}
+                              <span>{formatFlowValue(val)}</span>
+                            </td>
                           );
                         })}
                       </tr>
