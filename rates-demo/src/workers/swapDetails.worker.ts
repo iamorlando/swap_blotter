@@ -58,6 +58,7 @@ ctx.onmessage = async (ev: MessageEvent) => {
       const mdJson = JSON.stringify(msg.market || []);
       const curveJson: string = msg.curveJson || "";
       // Build swap context and compute risk in Python
+      pyodide.globals.set("swap_curve_json", curveJson);
       pyodide.runPython(
         `
 import json, pandas as pd
@@ -69,7 +70,8 @@ if 'StartDate' in swap_row and swap_row['StartDate'] is not None:
 if 'TerminationDate' in swap_row and swap_row['TerminationDate'] is not None:
     swap_row['TerminationDate'] = pd.to_datetime(swap_row['TerminationDate'])
 cal_md = pd.DataFrame(md_obj)
-set_swap_context(swap_row, r'''${escapeForPyExec(curveJson)}''', cal_md)
+set_swap_context(swap_row, swap_curve_json, cal_md)
+del swap_curve_json
 `
       );
       const riskJson = pyodide.runPython("import json\njson.dumps(get_swap_risk().to_dict())");

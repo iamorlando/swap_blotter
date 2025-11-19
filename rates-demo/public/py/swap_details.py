@@ -6,31 +6,31 @@ from datetime import datetime
 
 
 import pandas as pd
+swap_context:Dict = {}
+# def get_fixings(index: str, start:datetime,end:datetime)->pd.Series:
+#     """
+#     AGENTS: this is meant to be instructive. the db query must be made outside this worker and fixings passed in to it. 
+#     You take the swap start date as the first date that is needed, and the end date is teh valuation date -1. the valuation date is
+#     the date latest date in the calibrations table.
+#     """
+#     query = f"""
+#     SELECT date,value
+#     FROM pg.fixings
+#     WHERE index = '{index}'
+#     AND date < '{end}'
+#     AND date >= '{start}'
+#     ORDER BY date ASC
+#     """
+#     query_results = con.execute(query).fetchdf().set_index('date').squeeze()
+#     return query_results
 
-def get_fixings(index: str, start:datetime,end:datetime)->pd.Series:
-    """
-    AGENTS: this is meant to be instructive. the db query must be made outside this worker and fixings passed in to it. 
-    You take the swap start date as the first date that is needed, and the end date is teh valuation date -1. the valuation date is
-    the date latest date in the calibrations table.
-    """
-    query = f"""
-    SELECT date,value
-    FROM pg.fixings
-    WHERE index = '{index}'
-    AND date < '{end}'
-    AND date >= '{start}'
-    ORDER BY date ASC
-    """
-    query_results = con.execute(query).fetchdf().set_index('date').squeeze()
-    return query_results
 
-def get_fixings_for_swap_from_row(swap_row:pd.Series,valuation_date:datetime)->pd.Series:
-    fixings = get_fixings('sofr', swap_row['StartDate'], valuation_date)
-    return fixings
 
-def build_swap(row: pd.Series, valuation_date: datetime)->IRS:
+def build_swap(row: pd.Series)->IRS:
+    global swap_context
+    valuation_date = swap_context['valuation_date']
     cal = get_calendar(defaults.spec['usd_irs']['calendar'])
-    fixings = get_fixings_for_swap_from_row(row, valuation_date)
+    fixings = swap_context['fixings'] # should be a series indexed by date
     if not fixings.empty:
         fixings = fixings.loc[cal.bus_date_range(fixings.index.min(), cal.add_bus_days(valuation_date,-1,True))]
     kwargs = {"leg2_fixings": fixings} if not fixings.empty else {}
@@ -47,7 +47,7 @@ def build_swap(row: pd.Series, valuation_date: datetime)->IRS:
 
 
 #variables to set for a swap id on init, must be in scope for all calculations within the swap details modal
-swap_context:Dict = {}
+
 def set_swap_context(swap_row:pd.Series,curve_json:str,calibration_md:pd.DataFrame):
     global swap_context
     swap_context = {}
@@ -55,13 +55,24 @@ def set_swap_context(swap_row:pd.Series,curve_json:str,calibration_md:pd.DataFra
     swap_context['curve_json'] = curve_json
     swap_context['curve']= from_json(curve_json)
     swap_context['valuation_date'] = swap_context['curve'].nodes.keys[0]
-    swap_context['swap'] = build_swap(swap_row,valuation_date=swap_context['valuation_date'])
     swap_context['calibration_md'] = calibration_md
+    swap_context['fixings'] = pd.Series()
     swap_context['solver'] = form_solver(
         swap_context['curve_json'],
         list(calibration_md['Term']),
         calibration_md
     )
+def get_swap_fixing_index_name():
+    return 'sofr' # TODO TIE TO rateslib defaults, get that from swap row (convert SOFR to usd_irs spec)
+def get_inclusive_fixings_date_bounds():
+    global swap_context
+    cal = get_calendar('nyc') # TODO TIE TO rateslib defaults, get that from swap row (convert SOFR to usd_irs spec)
+    end_date = cal.add_bus_days(swap_context['valuation_date'],-1,True)
+    start_date = swap_context['swap_row']['StartDate']
+    return (start_date,end_date)
+
+
+    return (start_date,end_date)
 def update_calibration_json_and_md(curve_json:str,calibration_md:pd.DataFrame):
     global swap_context
     swap_context['curve'] = from_json(curve_json)
@@ -84,8 +95,16 @@ def form_solver(sofr_curve_json:str,terms:List[str],calibration_market_data:pd.D
     id="sofr",
     )
     return solver
-
+def hydrate_swap():
+    global swap_context 
+    swp = build_swap(swap_context['swap_row'])
+    swap_context['swap'] = swp
+    
+    return swp
 def get_swap_risk():
     risk_tbl = swap_context['swap'].delta(solver=swap_context['solver'])
     terms = [i[-1] for i in risk_tbl.index]
     return pd.Series(data=risk_tbl.values.squeeze(),index=terms)
+    # ones = np.ones(len(terms))
+    # dummy_df = pd.Series(data=ones,index=terms)
+    # return dummy_df
