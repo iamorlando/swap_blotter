@@ -93,6 +93,7 @@ function DatafeedPageInner() {
   const [riskMapState, setRiskMapState] = React.useState<Record<string, any>>({});
   const riskMapRef = React.useRef<Record<string, any>>({});
   const [modalApprox, setModalApprox] = React.useState<any>(null);
+  const [modalFixedFlows, setModalFixedFlows] = React.useState<any[]>([]);
   React.useEffect(() => {
     swapSnapshotRef.current = modalSwapRow ?? swapSnapshot;
   }, [modalSwapRow, swapSnapshot]);
@@ -204,6 +205,9 @@ function DatafeedPageInner() {
         console.log("[datafeed worker] tick", curveRows?.length);
         setData(curveRows);
         pushApproxMarket(curveRows);
+        if (swapIdRef.current && detailsRef.current) {
+          detailsRef.current.postMessage({ type: "fixedFlows", market: curveRows, swapId: swapIdRef.current });
+        }
         if (showMarketOverlay) setShowMarketOverlay(false);
         if (msg.movedTerm) {
           setMovedTerm(msg.movedTerm as string);
@@ -324,6 +328,7 @@ function DatafeedPageInner() {
     if (!activeSwapId) {
       setModalApprox(null);
       setModalRisk(null);
+      setModalFixedFlows([]);
       setModalSwapRow(null);
       return;
     }
@@ -387,6 +392,7 @@ function DatafeedPageInner() {
         const md = await mdRes.json();
         if (cancelled) return;
         const marketRows = Array.isArray(md.rows) ? md.rows : [];
+        console.log("[swap details] sending context md rows", marketRows.length, marketRows[0]);
         detailsRef.current?.postMessage({
           type: "context",
           swapId,
@@ -426,6 +432,11 @@ function DatafeedPageInner() {
         if (msg.swapId && msg.swapId !== swapIdRef.current) return;
         setModalRisk(msg.risk || null);
         if (msg.swap) applyModalSwapUpdate(msg.swap as Record<string, unknown>);
+        if (msg.price) applyModalSwapUpdate(msg.price as Record<string, unknown>);
+      } else if (msg.type === "fixed_flows") {
+        if (msg.swapId && msg.swapId !== swapIdRef.current) return;
+        setModalFixedFlows(Array.isArray(msg.rows) ? msg.rows : []);
+        console.log("[swap details] fixed flows update", msg.rows?.length ?? 0);
       } else if (msg.type === "error") {
         console.error("[swap details worker] error", msg.error);
       }
@@ -1042,6 +1053,7 @@ const renderRateEditCell = React.useCallback((params: GridRenderEditCellParams) 
                 riskData={modalRisk}
                 modalApprox={modalApprox}
                 onFullReval={recalibrate}
+                fixedFlows={modalFixedFlows}
               />
             </Modal>
           )}

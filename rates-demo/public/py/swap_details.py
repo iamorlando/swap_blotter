@@ -158,7 +158,8 @@ def revalue_swap():
     swap_context['swap_row']['ParRate'] = parrate
     save_swap_fixed_base_flows()
 def get_swap_risk():
-    risk_tbl = swap_context['swap'].delta(solver=swap_context['solver'])
+
+    risk_tbl = swap_context.setdefault('swap',build_swap(swap_context['swap_row'])).delta(solver=swap_context['solver'])
     terms = [i[-1] for i in risk_tbl.index]
     return pd.Series(data=risk_tbl.values.squeeze(),index=terms)
     # ones = np.ones(len(terms))
@@ -186,19 +187,25 @@ def save_swap_fixed_base_flows():
     valuation_date = swap_context['valuation_date']
     l1_dfs = [calibrated_curve[d.payment] for d in swp.leg1.periods if d.payment > valuation_date]
     flows =get_fixed_cashflows()
+    swap_context.setdefault('fixed_leg',{})
     swap_context['fixed_leg']['dfs'] = np.array([df.real for df in l1_dfs])
     swap_context['fixed_leg']['cashflows'] = flows
     swap_context['fixed_leg']['df_sensitivities'] = get_df_sensitivities(l1_dfs)
 
 def get_fixed_flows(new_md:pd.DataFrame=None)->pd.DataFrame:
     global swap_context
-    if new_md is None:
-        new_md = swap_context['calibration_md']*0
-    md_changes = new_md-swap_context['calibration_md']
-    updated_dfs = swap_context['fixed_leg']['dfs']+(swap_context['fixed_leg']['df_sensitivities']@md_changes*100)
-    # swap_context['fixed_leg']['cashflows']['Discount Factor'] = updated_dfs
-    updated_npvs = updated_dfs*swap_context['fixed_leg']['cashflows']['Cashflow']
+    base_md=swap_context.get('calibration_md',pd.DataFrame())
+    if base_md is None or base_md.empty:
+        return pd.DataFrame()
+    base_md = base_md.set_index('Term')[['Rate']]
+    if new_md is None or new_md.empty:
+        new_md = base_md
+    else:
+        # new_md = new_md.set_index('Term')
+        return new_md
+    md_changes = (new_md - base_md)['Rate'].to_numpy(dtype='float64')
+    updated_dfs = swap_context['fixed_leg']['dfs'] + (swap_context['fixed_leg']['df_sensitivities'] @ (md_changes * 100))
     df = swap_context['fixed_leg']['cashflows'].copy()
     df['Discount Factor'] = updated_dfs
-    df['NPV'] = updated_npvs
+    df['NPV'] = updated_dfs * df['Cashflow']
     return df

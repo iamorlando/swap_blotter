@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { GridColDef } from "@mui/x-data-grid";
+import { DataGrid, GridColDef } from "@mui/x-data-grid";
 
 export type BlotterRow = Record<string, unknown> & { id: string | number };
 
@@ -12,11 +12,16 @@ type SwapModalShellProps = {
   riskData?: any;
   modalApprox: any;
   onFullReval?: () => void;
+  fixedFlows?: any[];
 };
 
-export function SwapModalShell({ swapId, onClose, swapRow, riskData, modalApprox, onFullReval }: SwapModalShellProps) {
+export function SwapModalShell({ swapId, onClose, swapRow, riskData, modalApprox, onFullReval, fixedFlows = [] }: SwapModalShellProps) {
   const [tab, setTab] = React.useState<"pricing" | "cashflows" | "fixings" | "risk">("pricing");
   React.useEffect(() => { setTab("pricing"); }, [swapId]);
+  const [cashflowSubTab, setCashflowSubTab] = React.useState<"floating" | "fixed">("floating");
+  React.useEffect(() => {
+    if (tab !== "cashflows") setCashflowSubTab("floating");
+  }, [tab]);
 
   const counterparty = (swapRow as any)?.CounterpartyID ?? "—";
   const notional = swapRow?.Notional == null ? null : Math.abs(Number(swapRow.Notional));
@@ -95,6 +100,27 @@ export function SwapModalShell({ swapId, onClose, swapRow, riskData, modalApprox
     );
   };
 
+  const fixedFlowColumns = React.useMemo<GridColDef<any>[]>(() => {
+    if (!fixedFlows || !fixedFlows.length) return [];
+    const sample = fixedFlows[0];
+    return Object.keys(sample).map((key) => ({
+      field: key,
+      headerName: key,
+      flex: 1,
+      valueFormatter: (params) => {
+        const val = params?.value;
+        if (typeof val === "number") {
+          return Number.isInteger(val) ? val : Number(val).toFixed(6);
+        }
+        return val == null ? "" : String(val);
+      },
+    }));
+  }, [fixedFlows]);
+
+  const fixedFlowRows = React.useMemo(() => {
+    return fixedFlows?.map((row, idx) => ({ id: idx, ...row })) ?? [];
+  }, [fixedFlows]);
+
   return (
     <div className="space-y-4 text-sm text-gray-200">
       <div className="flex items-start justify-between gap-4">
@@ -133,7 +159,6 @@ export function SwapModalShell({ swapId, onClose, swapRow, riskData, modalApprox
       <div className="flex items-center gap-2">
         <TabButton id="pricing" label="Pricing summary" />
         <TabButton id="cashflows" label="Cashflows" />
-        <TabButton id="fixings" label="Fixings" />
         <TabButton id="risk" label="Risk" />
       </div>
 
@@ -157,6 +182,45 @@ export function SwapModalShell({ swapId, onClose, swapRow, riskData, modalApprox
                 <InfoRow label="Swap type" value={(swapRow as any)?.SwapType ?? "SOFR"} />
               </div>
             </div>
+          </div>
+        )}
+
+        {tab === "cashflows" && (
+          <div className="space-y-3">
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setCashflowSubTab("floating")}
+                className={`px-3 py-1.5 text-sm rounded-md border ${cashflowSubTab === "floating" ? "border-amber-400 text-amber-200" : "border-gray-700 text-gray-400"}`}
+              >
+                Floating
+              </button>
+              <button
+                onClick={() => setCashflowSubTab("fixed")}
+                className={`px-3 py-1.5 text-sm rounded-md border ${cashflowSubTab === "fixed" ? "border-amber-400 text-amber-200" : "border-gray-700 text-gray-400"}`}
+              >
+                Fixed
+              </button>
+            </div>
+            {cashflowSubTab === "floating" ? (
+              <div className="text-gray-500 text-sm">Floating cashflows coming soon.</div>
+            ) : (
+              <div className="h-64">
+                <DataGrid
+                  rows={fixedFlowRows}
+                  columns={fixedFlowColumns}
+                  density="compact"
+                  disableColumnMenu
+                  hideFooter
+                  sx={{
+                    color: "#e5e7eb",
+                    border: 0,
+                    "& .MuiDataGrid-columnHeaders": { backgroundColor: "#0b1220" },
+                    "& .MuiDataGrid-row": { backgroundColor: "#111827" },
+                    "& .MuiDataGrid-cell": { borderColor: "#1f2937" },
+                  }}
+                />
+              </div>
+            )}
           </div>
         )}
 

@@ -1,10 +1,62 @@
 // Swap details worker: keeps a persistent Pyodide instance to price/risk a single swap.
 export {};
 
+type MarketRow = { Term: string; Rate: number };
+
 const ctx: any = self as any;
 
 let pyodide: any = null;
 let initialized = false;
+
+function runPy(code: string) {
+  return pyodide?.runPython(code);
+}
+
+function serializeSwapRow(): Record<string, unknown> | null {
+  const priceJson = runPy("import json\njson.dumps(get_current_swap_price().to_dict())");
+  if (!priceJson) return null;
+  const price = JSON.parse(priceJson as string) as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  if (price?.NPV != null) out.NPV = price.NPV;
+  if (price?.ParRate != null) out.ParRate = price.ParRate;
+  return Object.keys(out).length ? out : null;
+}
+
+function computeFixedFlows(rows?: MarketRow[]): any[] {
+  if (!pyodide) return [];
+  const payload = Array.isArray(rows) ? rows.map((r) => ({ Term: String(r.Term), Rate: Number(r.Rate) })) : null;
+  const baseCode = `out = get_fixed_flows(${payload && payload.length ? 'md' : ''})\n` +
+    `out = out.reset_index(drop=True) if hasattr(out, 'reset_index') else out\n` +
+    `for col in out.columns:\n` +
+    `    if hasattr(out[col], 'dt'):\n` +
+    `        out[col] = out[col].astype(str)\n` +
+    `json.dumps(out.to_dict(orient='records'))`;
+  const pyCode = payload && payload.length
+    ? `import pandas as pd, json\nmd = pd.DataFrame(json.loads(r'''${escapeForPyExec(JSON.stringify(payload))}'''))\n` +
+      `md['Rate'] = md['Rate'].astype(float)\n` + baseCode
+    : `import pandas as pd, json\n` + baseCode.replace('(md)', '()');
+  try {
+    if (payload) console.log("[swap details worker] fixed flow md rows", payload.length);
+    const result = runPy(pyCode);
+    return result ? JSON.parse(result as string) : [];
+  } catch (err) {
+    console.error("[swap details worker] computeFixedFlows error", err);
+    return [];
+  }
+}
+
+function emitRiskAndPrice(swapId: string | null) {
+  const riskJson = runPy("import json\njson.dumps(get_swap_risk().to_dict())");
+  const priceJson = runPy("import json\njson.dumps(get_current_swap_price().to_dict())");
+  const swapRowJson = serializeSwapRow();
+  ctx.postMessage({
+    type: "risk",
+    swapId,
+    risk: riskJson ? JSON.parse(riskJson as string) : null,
+    price: priceJson ? JSON.parse(priceJson as string) : null,
+    swap: swapRowJson,
+  });
+}
 
 function escapeForPyExec(code: string): string {
   return code
@@ -41,6 +93,7 @@ from py.swap_details import (
     get_swap_fixing_index_name,
     update_curve_in_context,
     get_current_swap_price,
+    get_fixed_flows
 )
 `;
 
@@ -93,13 +146,10 @@ json.dumps(info)
           end: info.bounds[1],
         });
         try {
-          console.log(`/api/fixings?${params.toString()}`);
           const resp = await fetch(`/api/fixings?${params.toString()}`);
           if (resp.ok) {  
             const data = await resp.json();
-            console.log("[swap details worker] fixings fetch", data);
             fixings = Array.isArray(data.rows) ? data.rows : [];
-            console.log("[swap details worker] fixings fetch", fixings);
           } else {
             console.error("[swap details worker] fixings fetch", resp.status);
           }
@@ -125,9 +175,8 @@ hydrate_swap()
 del swap_fixings_payload_json
 `
       );
-      const riskJson = pyodide.runPython("import json\njson.dumps(get_swap_risk().to_dict())");
-      const swapRowJson = pyodide.runPython("import json\njson.dumps(get_current_swap_price().to_dict())");
-      ctx.postMessage({ type: "risk", swapId: msg.swapId, risk: JSON.parse(riskJson), swap: JSON.parse(swapRowJson) });
+      emitRiskAndPrice(msg.swapId);
+      ctx.postMessage({ type: "fixed_flows", swapId: msg.swapId, rows: computeFixedFlows() });
     } catch (e) {
       ctx.postMessage({ type: "error", swapId: msg.swapId, error: String(e) });
     }
@@ -147,10 +196,16 @@ hydrate_swap()
 del swap_curve_update_json
 `
       );
-      const riskJson = pyodide.runPython("import json\njson.dumps(get_swap_risk().to_dict())");
-      const swapRowJson = pyodide.runPython("import json\njson.dumps(get_current_swap_price().to_dict())");
-      console.log("swaprowjson", swapRowJson);
-      ctx.postMessage({ type: "risk", swapId: msg.swapId, risk: JSON.parse(riskJson), swap: JSON.parse(swapRowJson) });
+      emitRiskAndPrice(msg.swapId);
+      ctx.postMessage({ type: "fixed_flows", swapId: msg.swapId, rows: computeFixedFlows() });
+    } catch (e) {
+      ctx.postMessage({ type: "error", swapId: msg.swapId, error: String(e) });
+    }
+  } else if (msg.type === "fixedFlows") {
+    if (!initialized) return;
+    try {
+      const rows = Array.isArray(msg.market) ? (msg.market as Array<{ Term: string; Rate: number }>) : [];
+      ctx.postMessage({ type: "fixed_flows", swapId: msg.swapId, rows: computeFixedFlows(rows) });
     } catch (e) {
       ctx.postMessage({ type: "error", swapId: msg.swapId, error: String(e) });
     }
