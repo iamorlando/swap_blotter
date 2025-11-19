@@ -123,6 +123,8 @@ function DatafeedPageInner() {
   const chartBoxRef = React.useRef<HTMLDivElement | null>(null);
   const [chartSize, setChartSize] = React.useState({ width: 0, height: 0 });
   const pointDragRef = React.useRef(false);
+  const linkPauseRef = React.useRef(false);
+  const activeSwapId = swapId;
   // Show frosted overlays until each section has first data
   const [showMarketOverlay, setShowMarketOverlay] = React.useState(true);
   const [showCalibOverlay, setShowCalibOverlay] = React.useState(true);
@@ -297,6 +299,17 @@ function DatafeedPageInner() {
   }, [swapId, approxOverrides]);
 
   React.useEffect(() => {
+    swapIdRef.current = activeSwapId;
+    if (!activeSwapId) {
+      setModalApprox(null);
+      setModalRisk(null);
+      return;
+    }
+    const existing = approxOverrides[activeSwapId];
+    if (existing) setModalApprox(existing);
+  }, [activeSwapId, approxOverrides]);
+
+  React.useEffect(() => {
     if (!approxReady) return;
     const activeSwap = swapIdRef.current;
     if (!activeSwap) return;
@@ -442,6 +455,21 @@ const renderRateEditCell = React.useCallback((params: GridRenderEditCellParams) 
   const computeIntervalMs = React.useCallback((fpsVal: number) => {
     return Math.max(100, Math.round(1000 / Math.max(1, Math.min(10, fpsVal))));
   }, []);
+
+  const pauseTicksForLink = React.useCallback(() => {
+    if (!workerRef.current) return;
+    if (!autoRef.current) return;
+    workerRef.current.postMessage({ type: "stopAuto" });
+    linkPauseRef.current = true;
+  }, []);
+
+  const resumeTicksForLink = React.useCallback(() => {
+    if (!workerRef.current) return;
+    if (!linkPauseRef.current) return;
+    linkPauseRef.current = false;
+    if (!autoRef.current) return;
+    workerRef.current.postMessage({ type: "startAuto", intervalMs: computeIntervalMs(fps) });
+  }, [computeIntervalMs, fps]);
   const commitCurve = React.useCallback((rows: Array<{ Term: string; Rate: number }>) => {
     setMovedTerm(null);
     setMoveDir(null);
@@ -947,6 +975,8 @@ const renderRateEditCell = React.useCallback((params: GridRenderEditCellParams) 
         clearApproximation={clearApproximation}
         hasCurveData={data.length > 0}
         onOpenSwap={setSwapSnapshot}
+        onPauseTicks={pauseTicksForLink}
+        onResumeTicks={resumeTicksForLink}
         onRiskMapUpdate={updateRiskMap}
         onFatalError={setFatalError}
       />
@@ -999,11 +1029,13 @@ type BlotterGridProps = {
   clearApproximation: () => void;
   hasCurveData: boolean;
   onOpenSwap?: (row: BlotterRow) => void;
+  onPauseTicks?: () => void;
+  onResumeTicks?: () => void;
   onRiskMapUpdate: (map: Record<string, any>) => void;
   onFatalError?: (msg: string) => void;
 };
 
-function BlotterGrid({ approxReady, approxOverrides, requestApproximation, clearApproximation, hasCurveData, onOpenSwap, onRiskMapUpdate, onFatalError }: BlotterGridProps) {
+function BlotterGrid({ approxReady, approxOverrides, requestApproximation, clearApproximation, hasCurveData, onOpenSwap, onPauseTicks, onResumeTicks, onRiskMapUpdate, onFatalError }: BlotterGridProps) {
   const usd = React.useMemo(
     () => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 }),
     []
@@ -1096,7 +1128,15 @@ function BlotterGrid({ approxReady, approxOverrides, requestApproximation, clear
       cols[idx] = {
         ...cols[idx],
         headerName: generatedIdField || cols[idx].headerName,
-        renderCell: (params) => <SwapLink id={params?.value} row={params.row as BlotterRow} onOpenSwap={onOpenSwap} />,
+        renderCell: (params) => (
+          <SwapLink
+            id={params?.value}
+            row={params.row as BlotterRow}
+            onOpenSwap={onOpenSwap}
+            onPauseTicks={onPauseTicks}
+            onResumeTicks={onResumeTicks}
+          />
+        ),
         width: 180,
       } as GridColDef<BlotterRow>;
     }
@@ -1120,7 +1160,7 @@ function BlotterGrid({ approxReady, approxOverrides, requestApproximation, clear
     if (nIdx >= 0) cols[nIdx] = { ...cols[nIdx], ...notionalCol };
     else cols.push(notionalCol);
     return cols;
-  }, [apiCols, fmtDate, onOpenSwap, usd]);
+  }, [apiCols, fmtDate, onOpenSwap, onPauseTicks, onResumeTicks, usd]);
 
   const [columns] = React.useState<GridColDef<BlotterRow>[]>(initialColumns);
   const [rows, setRows] = React.useState<BlotterRow[]>([]);
@@ -1309,10 +1349,16 @@ function BlotterGrid({ approxReady, approxOverrides, requestApproximation, clear
   );
 }
 
-function SwapLink({ id, row, onOpenSwap }: { id: string | number; row?: BlotterRow; onOpenSwap?: (row: BlotterRow) => void }) {
+function SwapLink({ id, row, onOpenSwap, onPauseTicks, onResumeTicks }: { id: string | number; row?: BlotterRow; onOpenSwap?: (row: BlotterRow) => void; onPauseTicks?: () => void; onResumeTicks?: () => void }) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const onMouseDown = () => {
+    onPauseTicks?.();
+  };
+  const onMouseUp = () => {
+    onResumeTicks?.();
+  };
   const onClick = (e: React.MouseEvent) => {
     e.preventDefault();
     // Prevent DataGrid from also handling this event
@@ -1325,7 +1371,7 @@ function SwapLink({ id, row, onOpenSwap }: { id: string | number; row?: BlotterR
     router.push(`${pathname}?${sp.toString()}`, { scroll: false });
   };
   return (
-    <a href={`/swap/${id ?? ""}`} onClick={onClick} className="text-blue-400 underline hover:text-blue-300">
+    <a href={`/swap/${id ?? ""}`} onMouseDown={onMouseDown} onMouseUp={onMouseUp} onClick={onClick} className="text-blue-400 underline hover:text-blue-300">
       {id == null ? "—" : String(id)}
     </a>
   );
