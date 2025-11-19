@@ -187,7 +187,6 @@ def save_swap_fixed_base_flows():
     l1_dfs = [calibrated_curve[d.payment] for d in swp.leg1.periods if d.payment > valuation_date]
     flows =get_fixed_cashflows()
     swap_context.setdefault('fixed_leg',{})
-    swap_context['fixed_leg']['dfs'] = np.array([df.real for df in l1_dfs])
     swap_context['fixed_leg']['cashflows'] = flows
     swap_context['fixed_leg']['df_sensitivities'] = get_df_sensitivities(l1_dfs)
 
@@ -196,15 +195,17 @@ def get_fixed_flows(new_md:pd.DataFrame=None)->pd.DataFrame:
     base_md=swap_context.get('calibration_md',pd.DataFrame())
     if base_md is None or base_md.empty:
         return pd.DataFrame()
-    base_md = base_md.set_index('Term')[['Rate']]
+    base_md = base_md.set_index('Term')[['Rate']].squeeze()
     if new_md is None or new_md.empty:
         new_md = base_md
     else:
-        # new_md = new_md.set_index('Term')
-        return new_md
-    md_changes = (new_md - base_md)['Rate'].to_numpy(dtype='float64')
-    updated_dfs = swap_context['fixed_leg']['dfs'] + (swap_context['fixed_leg']['df_sensitivities'] @ (md_changes * 100))
+        new_md['Rate'] = new_md['Rate']
+        new_md = new_md.set_index('Term')[['Rate']].squeeze() * 100  # rateslib expects percents
+    md_changes = (new_md - base_md).fillna(0.0).to_numpy(dtype='float64')
     df = swap_context['fixed_leg']['cashflows'].copy()
+    dfs = df['Discount Factor'].to_numpy(dtype='float64')
+    sensitivities = swap_context['fixed_leg']['df_sensitivities'] 
+    updated_dfs = dfs + (sensitivities @ (md_changes * 100))
     df['Discount Factor'] = updated_dfs
     df['NPV'] = updated_dfs * df['Cashflow']
     return df
