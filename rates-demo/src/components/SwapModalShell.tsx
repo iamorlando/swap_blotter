@@ -130,7 +130,7 @@ export function SwapModalShell({ swapId, onClose, swapRow, riskRow: _riskRow, mo
         <TabButton id="risk" label="Risk" />
       </div>
 
-      <div className="border border-gray-800 rounded-md bg-gray-900 p-4 min-h-[260px]">
+      <div className="border border-gray-800 rounded-md bg-gray-900 p-4 h-[360px] overflow-auto">
         {tab === "pricing" && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div className="border border-gray-800 rounded-md p-3 bg-gray-950">

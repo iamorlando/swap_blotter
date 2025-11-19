@@ -11,6 +11,15 @@ import { columnsMeta as generatedColumns, idField as generatedIdField } from "@/
 import Modal from "@/components/Modal";
 import { SwapModalShell } from "@/components/SwapModalShell";
 
+let sharedDatafeedWorker: Worker | null = null;
+let datafeedInitialized = false;
+let sharedApproxWorker: Worker | null = null;
+let approxInitialized = false;
+let sharedDetailsWorker: Worker | null = null;
+let detailsInitialized = false;
+let sharedCalibWorker: Worker | null = null;
+let calibInitialized = false;
+
 type Row = { id: number; Term: string; Rate: number };
 type ApiColumn = { field: string; type?: string };
 type BlotterRow = Record<string, unknown> & { id: string | number };
@@ -77,6 +86,9 @@ function DatafeedPageInner() {
   const [approxReady, setApproxReady] = React.useState(false);
   const [approxOverrides, setApproxOverrides] = React.useState<Record<string, any>>({});
   const [swapSnapshot, setSwapSnapshot] = React.useState<BlotterRow | null>(null);
+  const detailsRef = React.useRef<Worker | null>(null);
+  const [detailsReady, setDetailsReady] = React.useState(false);
+  const [modalRisk, setModalRisk] = React.useState<any | null>(null);
   const [riskMapState, setRiskMapState] = React.useState<Record<string, any>>({});
   const riskMapRef = React.useRef<Record<string, any>>({});
   const [modalApprox, setModalApprox] = React.useState<any>(null);
@@ -146,13 +158,16 @@ function DatafeedPageInner() {
   React.useEffect(() => { autoRef.current = auto; }, [auto]);
 
   React.useEffect(() => {
-    const w = new Worker(new URL("../../workers/datafeed.worker.ts", import.meta.url));
+    if (!sharedDatafeedWorker) {
+      sharedDatafeedWorker = new Worker(new URL("../../workers/datafeed.worker.ts", import.meta.url), { type: "module" });
+    }
+    const w = sharedDatafeedWorker;
     workerRef.current = w;
-    w.addEventListener("error", (ev) => {
+    const onError = (ev: ErrorEvent) => {
       console.error("[datafeed worker] onerror", ev?.message || ev);
       setFatalError(ev?.message || "worker error");
-    });
-    w.onmessage = (e: MessageEvent) => {
+    };
+    const onMessage = (e: MessageEvent) => {
       const msg = e.data || {};
       if (msg.type === "ready") {
         console.log("[datafeed worker] ready");
@@ -181,10 +196,16 @@ function DatafeedPageInner() {
         console.log(`[datafeed worker] ${msg.message}`);
       }
     };
-    w.postMessage({ type: "init", baseUrl: "https://cdn.jsdelivr.net/pyodide/v0.29.0/full/", pythonUrl: "/py/datafeed.py" });
+    w.addEventListener("error", onError);
+    w.addEventListener("message", onMessage);
+    if (!datafeedInitialized) {
+      datafeedInitialized = true;
+      w.postMessage({ type: "init", baseUrl: "https://cdn.jsdelivr.net/pyodide/v0.29.0/full/", pythonUrl: "/py/datafeed.py" });
+    }
     return () => {
       if (autoRef.current) w.postMessage({ type: "stopAuto" });
-      w.terminate();
+      w.removeEventListener("error", onError);
+      w.removeEventListener("message", onMessage);
       workerRef.current = null;
     };
   }, [pushApproxMarket, showMarketOverlay]);
@@ -192,21 +213,27 @@ function DatafeedPageInner() {
   const swapIdRef = React.useRef<string | null>(null);
 
   React.useEffect(() => {
-    const w = new Worker(new URL("../../workers/swapApprox.worker.ts", import.meta.url));
+    if (!sharedApproxWorker) {
+      sharedApproxWorker = new Worker(new URL("../../workers/swapApprox.worker.ts", import.meta.url), { type: "module" });
+    }
+    const w = sharedApproxWorker;
     approxRef.current = w;
-    approxReadyRef.current = false;
-    setApproxReady(false);
-    setApproxOverrides({});
-    w.addEventListener("error", (ev) => {
+    approxReadyRef.current = approxInitialized;
+    setApproxReady(approxInitialized);
+    if (!approxInitialized) {
+      setApproxOverrides({});
+    }
+    const onError = (ev: ErrorEvent) => {
       console.error("[approx worker] onerror", ev?.message || ev);
       setApproxFatal(ev?.message || "approx worker error");
-    });
-    w.onmessage = (e: MessageEvent) => {
+    };
+    const onMessage = (e: MessageEvent) => {
       const msg = e.data || {};
       if (msg.type === "ready") {
         console.log("[approx worker] ready");
         approxReadyRef.current = true;
         setApproxReady(true);
+        approxInitialized = true;
         if (latestCurveRef.current) {
           w.postMessage({ type: "curve", market: latestCurveRef.current });
         }
@@ -232,13 +259,14 @@ function DatafeedPageInner() {
         console.log(`[approx worker] ${msg.message}`);
       }
     };
-    w.postMessage({ type: "init", baseUrl: "https://cdn.jsdelivr.net/pyodide/v0.29.0/full/", datafeedUrl: "/py/datafeed.py", approxUrl: "/py/swap_approximation.py" });
+    w.addEventListener("error", onError);
+    w.addEventListener("message", onMessage);
+    if (!approxInitialized) {
+      w.postMessage({ type: "init", baseUrl: "https://cdn.jsdelivr.net/pyodide/v0.29.0/full/", datafeedUrl: "/py/datafeed.py", approxUrl: "/py/swap_approximation.py" });
+    }
     return () => {
-      approxReadyRef.current = false;
-      setApproxReady(false);
-      setApproxOverrides({});
-      setModalApprox(null);
-      w.terminate();
+      w.removeEventListener("error", onError);
+      w.removeEventListener("message", onMessage);
       approxRef.current = null;
     };
   }, []);
@@ -252,6 +280,7 @@ function DatafeedPageInner() {
     swapIdRef.current = swapId;
     if (!swapId) {
       setModalApprox(null);
+      setModalRisk(null);
       return;
     }
     const existing = approxOverrides[swapId];
@@ -276,9 +305,96 @@ function DatafeedPageInner() {
     approxRef.current?.postMessage({ type: "swaps", swaps: [swapPayload], risk: riskRow ? [riskRow] : [] });
   }, [approxReady, swapSnapshot, riskMapState]);
 
+  const normalizeSwapForDetails = React.useCallback((row: BlotterRow | null) => {
+    if (!row) return null;
+    const toIso = (v: any) => {
+      if (!v) return null;
+      const d = new Date(v as any);
+      return Number.isFinite(d.getTime()) ? d.toISOString() : null;
+    };
+    return {
+      ...row,
+      ID: (row as any).ID ?? row.id,
+      id: row.id,
+      FixedRate: row.FixedRate == null ? null : Number(row.FixedRate),
+      Notional: row.Notional == null ? null : Number(row.Notional),
+      NPV: row.NPV == null ? null : Number(row.NPV),
+      ParRate: row.ParRate == null ? null : Number(row.ParRate),
+      StartDate: toIso((row as any).StartDate),
+      TerminationDate: toIso((row as any).TerminationDate),
+    };
+  }, []);
+
+  React.useEffect(() => {
+    setModalRisk(null);
+    if (!swapId || !detailsReady) return;
+    const normalizedSwap = normalizeSwapForDetails(swapSnapshot);
+    if (!normalizedSwap) return;
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const [calRes, mdRes] = await Promise.all([
+          fetch("/api/calibration/latest", { cache: "no-store" }),
+          fetch("/api/md/latest", { cache: "no-store" }),
+        ]);
+        if (!calRes.ok) throw new Error(`calibration fetch failed: ${calRes.status}`);
+        if (!mdRes.ok) throw new Error(`md fetch failed: ${mdRes.status}`);
+        const cal = await calRes.json();
+        const md = await mdRes.json();
+        if (cancelled) return;
+        const marketRows = Array.isArray(md.rows) ? md.rows : [];
+        detailsRef.current?.postMessage({
+          type: "context",
+          swapId,
+          swap: normalizedSwap,
+          curveJson: cal?.json,
+          market: marketRows,
+        });
+      } catch (err) {
+        console.error("[swap details] context", err);
+      }
+    };
+    load();
+    return () => { cancelled = true; };
+  }, [swapId, swapSnapshot, detailsReady, normalizeSwapForDetails]);
+
   const requestApproximation = React.useCallback((swaps: any[], risk: any[]) => {
     if (!approxRef.current) return;
     approxRef.current.postMessage({ type: "swaps", swaps, risk });
+  }, []);
+
+  React.useEffect(() => {
+    if (!sharedDetailsWorker) {
+      sharedDetailsWorker = new Worker(new URL("../../workers/swapDetails.worker.ts", import.meta.url), { type: "module" });
+    }
+    const w = sharedDetailsWorker;
+    detailsRef.current = w;
+    if (detailsInitialized) setDetailsReady(true);
+    const onError = (ev: ErrorEvent) => {
+      console.error("[swap details worker] onerror", ev?.message || ev);
+    };
+    const onMessage = (e: MessageEvent) => {
+      const msg = e.data || {};
+      if (msg.type === "ready") {
+        setDetailsReady(true);
+        detailsInitialized = true;
+      } else if (msg.type === "risk") {
+        if (msg.swapId && msg.swapId !== swapIdRef.current) return;
+        setModalRisk(msg.risk || null);
+      } else if (msg.type === "error") {
+        console.error("[swap details worker] error", msg.error);
+      }
+    };
+    w.addEventListener("error", onError);
+    w.addEventListener("message", onMessage);
+    if (!detailsInitialized) {
+      w.postMessage({ type: "init", baseUrl: "https://cdn.jsdelivr.net/pyodide/v0.29.0/full/", detailsUrl: "/py/swap_details.py" });
+    }
+    return () => {
+      w.removeEventListener("error", onError);
+      w.removeEventListener("message", onMessage);
+      detailsRef.current = null;
+    };
   }, []);
 
   const clearApproximation = React.useCallback(() => {
@@ -670,12 +786,17 @@ const renderRateEditCell = React.useCallback((params: GridRenderEditCellParams) 
   const [autoCalibrated, setAutoCalibrated] = React.useState(false);
 
   React.useEffect(() => {
-    const w = new Worker(new URL("../../workers/calibration.worker.ts", import.meta.url));
+    if (!sharedCalibWorker) {
+      sharedCalibWorker = new Worker(new URL("../../workers/calibration.worker.ts", import.meta.url), { type: "module" });
+    }
+    const w = sharedCalibWorker;
     calibRef.current = w;
-    w.onmessage = (e: MessageEvent) => {
+    if (calibInitialized) setCalibReady(true);
+    const onMessage = (e: MessageEvent) => {
       const msg = e.data || {};
       if (msg.type === "ready") {
         setCalibReady(true);
+        calibInitialized = true;
       } else if (msg.type === "curves") {
         setCalibrating(false);
         if (showCalibOverlay) setShowCalibOverlay(false);
@@ -688,9 +809,12 @@ const renderRateEditCell = React.useCallback((params: GridRenderEditCellParams) 
         setCalibErr(String(msg.error ?? "Unknown error"));
       }
     };
-    w.postMessage({ type: "init", baseUrl: "https://cdn.jsdelivr.net/pyodide/v0.29.0/full/", datafeedUrl: "/py/datafeed.py", calibrationUrl: "/py/curve_calibration.py" });
+    w.addEventListener("message", onMessage);
+    if (!calibInitialized) {
+      w.postMessage({ type: "init", baseUrl: "https://cdn.jsdelivr.net/pyodide/v0.29.0/full/", datafeedUrl: "/py/datafeed.py", calibrationUrl: "/py/curve_calibration.py" });
+    }
     return () => {
-      w.terminate();
+      w.removeEventListener("message", onMessage);
       calibRef.current = null;
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -840,7 +964,7 @@ const renderRateEditCell = React.useCallback((params: GridRenderEditCellParams) 
                 swapId={swapId}
                 onClose={closeSwap}
                 swapRow={swapSnapshot}
-                riskRow={riskMapState[swapId] || null}
+                riskRow={modalRisk}
                 modalApprox={modalApprox}
               />
             </Modal>
