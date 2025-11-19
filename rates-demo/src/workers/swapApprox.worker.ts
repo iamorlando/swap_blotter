@@ -59,6 +59,13 @@ async function init(baseUrl: string, datafeedUrl: string, approxUrl: string) {
       + `def __set_base_curve(rows):\n`
       + `    global base_curve_df\n`
       + `    df = pd.DataFrame(rows)\n`
+      + `    rename_map = {}\n`
+      + `    if 'term' in df.columns and 'Term' not in df.columns:\n`
+      + `        rename_map['term'] = 'Term'\n`
+      + `    if 'rate' in df.columns and 'Rate' not in df.columns:\n`
+      + `        rename_map['rate'] = 'Rate'\n`
+      + `    if rename_map:\n`
+      + `        df = df.rename(columns=rename_map)\n`
       + `    if df.empty or 'Term' not in df.columns or 'Rate' not in df.columns:\n`
       + `        base_curve_df = None\n`
       + `        return\n`
@@ -68,8 +75,17 @@ async function init(baseUrl: string, datafeedUrl: string, approxUrl: string) {
       + `    if base_curve_df is None:\n`
       + `        return []\n`
       + `    df = pd.DataFrame(rows)\n`
+      + `    rename_map = {}\n`
+      + `    if 'term' in df.columns and 'Term' not in df.columns:\n`
+      + `        rename_map['term'] = 'Term'\n`
+      + `    if 'rate' in df.columns and 'Rate' not in df.columns:\n`
+      + `        rename_map['rate'] = 'Rate'\n`
+      + `    if rename_map:\n`
+      + `        df = df.rename(columns=rename_map)\n`
       + `    if 'Rate' in df.columns:\n`
       + `        df['Rate'] = df['Rate'].astype(float)  # live feed already decimals\n`
+      + `    if 'Term' not in df.columns or 'Rate' not in df.columns:\n`
+      + `        return []\n`
       + `    return get_md_changes(df, base_curve_df).reset_index().to_dict(orient='records')\n`
       + `def __approx_swaps(swaps_rows, risk_rows, md_changes_rows):\n`
       + `    swaps_df = pd.DataFrame(swaps_rows)\n`

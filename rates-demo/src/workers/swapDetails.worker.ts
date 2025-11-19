@@ -30,7 +30,7 @@ async function init(baseUrl: string, detailsUrl: string) {
 import types, sys
 pkg = types.ModuleType('py'); pkg.__path__ = []; sys.modules['py'] = pkg
 m_details = types.ModuleType('py.swap_details'); m_details.__package__='py'
-exec(compile(r'''${escapeForPyExec(swapDetailsCode)}''', 'py/swap_details.py', 'exec'), m_details.__dict__)
+exec(compile(${JSON.stringify(swapDetailsCode)}, 'py/swap_details.py', 'exec'), m_details.__dict__)
 sys.modules['py.swap_details'] = m_details
 from py.swap_details import set_swap_context, get_swap_risk
 `;

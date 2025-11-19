@@ -201,6 +201,12 @@ function DatafeedPageInner() {
     if (!datafeedInitialized) {
       datafeedInitialized = true;
       w.postMessage({ type: "init", baseUrl: "https://cdn.jsdelivr.net/pyodide/v0.29.0/full/", pythonUrl: "/py/datafeed.py" });
+    } else {
+      // If already initialized, ensure this mount has data and ticking
+      setReady(true);
+      w.postMessage({ type: "get" });
+      const intervalMs = 1000;
+      w.postMessage({ type: "startAuto", intervalMs });
     }
     return () => {
       if (autoRef.current) w.postMessage({ type: "stopAuto" });
@@ -263,6 +269,9 @@ function DatafeedPageInner() {
     w.addEventListener("message", onMessage);
     if (!approxInitialized) {
       w.postMessage({ type: "init", baseUrl: "https://cdn.jsdelivr.net/pyodide/v0.29.0/full/", datafeedUrl: "/py/datafeed.py", approxUrl: "/py/swap_approximation.py" });
+    } else if (latestCurveRef.current) {
+      // ensure existing worker has current curve when remounting
+      w.postMessage({ type: "curve", market: latestCurveRef.current });
     }
     return () => {
       w.removeEventListener("error", onError);
