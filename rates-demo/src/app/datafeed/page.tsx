@@ -1054,7 +1054,16 @@ function BlotterGrid({ approxReady, approxOverrides, requestApproximation, clear
         throw new Error(`swaps fetch failed: ${res.status} ${text}`);
       }
       const data = await res.json();
-      const baseRows: BlotterRow[] = data.rows || [];
+      const rawRows: BlotterRow[] = data.rows || [];
+      const baseRows: BlotterRow[] = rawRows.map((r, idx) => {
+        const idVal = (r as any).id ?? (r as any).ID ?? idx;
+        const notional = (r as any).Notional;
+        return {
+          ...r,
+          id: idVal,
+          Notional: notional == null ? null : Number(notional),
+        };
+      });
       setRows(baseRows);
       setRowCount(data.total || 0);
       clearApproximation();
