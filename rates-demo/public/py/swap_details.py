@@ -66,7 +66,7 @@ def get_inclusive_fixings_date_bounds():
     global swap_context
     cal = get_calendar('nyc') # TODO TIE TO rateslib defaults, get that from swap row (convert SOFR to usd_irs spec)
     end_date = cal.add_bus_days(swap_context['valuation_date'],-1,True)
-    start_date = swap_context['swap_row']['StartDate']
+    start_date = cal.add_bus_days(swap_context['swap_row']['StartDate'],-1,True)
     return (start_date,end_date)
 
 def update_calibration_json_and_md(curve_json:str,calibration_md:pd.DataFrame):
@@ -89,7 +89,7 @@ def form_solver(sofr_curve_json:str,terms:List[str],calibration_market_data:pd.D
     maturities = [add_tenor(valuation_date, t, "F", "nyc") for t in terms]
     solver = Solver(
         instruments=[IRS(valuation_date, m, spec="usd_irs", curves="sofr") for m in maturities],
-        s=calibration_market_data["Rate"]*100,
+        s=calibration_market_data["Rate"],
         curves=[sofr_curve],
         instrument_labels=calibration_market_data['Term'],
     id="sofr",

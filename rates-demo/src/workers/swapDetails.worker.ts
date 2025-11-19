@@ -32,7 +32,7 @@ pkg = types.ModuleType('py'); pkg.__path__ = []; sys.modules['py'] = pkg
 m_details = types.ModuleType('py.swap_details'); m_details.__package__='py'
 exec(compile(${JSON.stringify(swapDetailsCode)}, 'py/swap_details.py', 'exec'), m_details.__dict__)
 sys.modules['py.swap_details'] = m_details
-from py.swap_details import set_swap_context, get_swap_risk, get_inclusive_fixings_date_bounds, hydrate_swap,get_swap_fixing_index_name
+from py.swap_details import set_swap_context, get_swap_risk, get_inclusive_fixings_date_bounds, set_fixings, hydrate_swap,get_swap_fixing_index_name
 `;
 
     pyodide.runPython(bootstrap);
@@ -84,10 +84,13 @@ json.dumps(info)
           end: info.bounds[1],
         });
         try {
+          console.log(`/api/fixings?${params.toString()}`);
           const resp = await fetch(`/api/fixings?${params.toString()}`);
-          if (resp.ok) {
+          if (resp.ok) {  
             const data = await resp.json();
+            console.log("[swap details worker] fixings fetch", data);
             fixings = Array.isArray(data.rows) ? data.rows : [];
+            console.log("[swap details worker] fixings fetch", fixings);
           } else {
             console.error("[swap details worker] fixings fetch", resp.status);
           }
@@ -95,20 +98,22 @@ json.dumps(info)
           console.error("[swap details worker] fixings fetch", err);
         }
       }
-      pyodide.globals.set("swap_fixings_payload", fixings);
+      pyodide.globals.set("swap_fixings_payload_json", JSON.stringify(fixings ?? []));
       pyodide.runPython(
         `
-import pandas as pd
-fix_df = pd.DataFrame(swap_fixings_payload)
+import pandas as pd, json
+payload = json.loads(swap_fixings_payload_json)
+fix_df = pd.DataFrame(payload)
 if not fix_df.empty:
     if 'date' in fix_df.columns:
         fix_df['date'] = pd.to_datetime(fix_df['date'])
         fix_df = fix_df.set_index('date').sort_index()
+    fix_df = fix_df[['value']] if 'value' in fix_df.columns else fix_df
     set_fixings(fix_df.squeeze())
 else:
     set_fixings(pd.Series(dtype=float))
 hydrate_swap()
-del swap_fixings_payload
+del swap_fixings_payload_json
 `
       );
       const riskJson = pyodide.runPython("import json\njson.dumps(get_swap_risk().to_dict())");
