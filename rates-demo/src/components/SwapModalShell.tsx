@@ -5,6 +5,13 @@ import { GridColDef } from "@mui/x-data-grid";
 
 export type BlotterRow = Record<string, unknown> & { id: string | number };
 
+type FloatFixingsState = {
+  index: number | null;
+  columns: string[];
+  rows: any[];
+  loading?: boolean;
+};
+
 type SwapModalShellProps = {
   swapId: string;
   onClose: () => void;
@@ -14,6 +21,8 @@ type SwapModalShellProps = {
   onFullReval?: () => void;
   fixedFlows?: any[];
   floatFlows?: any[];
+  floatFixings?: FloatFixingsState | null;
+  onRequestFloatFixings?: (index: number | null) => void;
 };
 
 export function SwapModalShell({
@@ -25,6 +34,8 @@ export function SwapModalShell({
   onFullReval,
   fixedFlows = [],
   floatFlows = [],
+  floatFixings = null,
+  onRequestFloatFixings,
 }: SwapModalShellProps) {
   const [tab, setTab] = React.useState<"pricing" | "cashflows" | "fixings" | "risk">("pricing");
   React.useEffect(() => { setTab("pricing"); }, [swapId]);
@@ -160,6 +171,56 @@ export function SwapModalShell({
     prevTotalFloatNPVRef.current = totalFloatNPV;
     return prev ?? totalFloatNPV;
   }, [totalFloatNPV]);
+  const activeFixingsIndex = typeof floatFixings?.index === "number" ? floatFixings.index : null;
+  const handleFloatRowClick = React.useCallback((rowIdx: number) => {
+    if (!onRequestFloatFixings) return;
+    if (activeFixingsIndex === rowIdx) {
+      onRequestFloatFixings(null);
+    } else {
+      onRequestFloatFixings(rowIdx);
+    }
+  }, [onRequestFloatFixings, activeFixingsIndex]);
+  const renderFixingsTable = React.useCallback(() => {
+    if (!floatFixings) return null;
+    if (floatFixings.loading) {
+      return <div className="text-xs text-gray-400">Loading fixings...</div>;
+    }
+    const rows = Array.isArray(floatFixings.rows) ? floatFixings.rows : [];
+    const columns = (Array.isArray(floatFixings.columns) && floatFixings.columns.length)
+      ? floatFixings.columns
+      : (rows.length ? Object.keys(rows[0]) : []);
+    if (!columns.length) {
+      return <div className="text-xs text-gray-500">No fixings available.</div>;
+    }
+    return (
+      <div className="max-h-48 overflow-auto border border-gray-800 rounded-md bg-gray-950/80">
+        <table className="w-full text-[11px] text-gray-200">
+          <thead className="bg-gray-900 border-b border-gray-800 sticky top-0">
+            <tr>
+              {columns.map((col) => (
+                <th key={col} className="px-2 py-1 text-left font-medium text-gray-300">{col}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.length ? rows.map((fixRow, idx) => (
+              <tr key={idx} className="border-b border-gray-800">
+                {columns.map((col) => (
+                  <td key={col} className="px-2 py-1 whitespace-nowrap font-mono text-gray-200">
+                    {formatFlowValue(fixRow?.[col])}
+                  </td>
+                ))}
+              </tr>
+            )) : (
+              <tr>
+                <td colSpan={columns.length} className="px-2 py-2 text-center text-gray-500 text-xs">No fixings rows.</td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    );
+  }, [floatFixings]);
 
   return (
     <div className="space-y-4 text-sm text-gray-200">
@@ -258,36 +319,52 @@ export function SwapModalShell({
                       </tr>
                     </thead>
                     <tbody>
-                      {annotatedFloatFlows.length ? annotatedFloatFlows.map((row, idx) => (
-                        <tr key={idx} className="border-b border-gray-800">
-                          {floatFlowColumns.map((col) => {
-                            const val = row[col];
-                            const delta = row.__delta?.[col] ?? "flat";
-                            const color = delta === "up" ? "text-green-400" : delta === "down" ? "text-red-400" : "text-gray-200";
-                            const flash = delta === "up" ? "flash-up" : delta === "down" ? "flash-down" : "";
-                            const arrow = delta === "up" ? "▲" : delta === "down" ? "▼" : "";
-                            const isValueCol = isHighlightedFlowColumn(col, FLOAT_VALUE_COLUMNS);
-                            return (
-                              <td
-                                key={col}
-                                className={`px-3 py-2 whitespace-nowrap font-mono ${color} ${flash} ${isValueCol ? "w-32" : ""}`}
-                              >
-                                {isValueCol ? (
-                                  <span className="flex items-center justify-end gap-1 w-full">
-                                    <span className="inline-block w-4 text-center">{arrow || ""}</span>
-                                    <span className="inline-block min-w-[6rem] text-right">{formatFlowValue(val)}</span>
-                                  </span>
-                                ) : (
-                                  <span className="flex items-center gap-1">
-                                    <span className="inline-block w-4 text-center">{arrow || ""}</span>
-                                    <span>{formatFlowValue(val)}</span>
-                                  </span>
-                                )}
-                              </td>
-                            );
-                          })}
-                        </tr>
-                      )) : (
+                      {annotatedFloatFlows.length ? annotatedFloatFlows.map((row, idx) => {
+                        const rowActive = activeFixingsIndex === idx;
+                        const clickable = Boolean(onRequestFloatFixings);
+                        return (
+                          <React.Fragment key={idx}>
+                            <tr
+                              className={`border-b border-gray-800 ${clickable ? "cursor-pointer hover:bg-gray-800/30" : ""} ${rowActive ? "bg-gray-800/40" : ""}`}
+                              onClick={clickable ? () => handleFloatRowClick(idx) : undefined}
+                            >
+                              {floatFlowColumns.map((col) => {
+                                const val = row[col];
+                                const delta = row.__delta?.[col] ?? "flat";
+                                const color = delta === "up" ? "text-green-400" : delta === "down" ? "text-red-400" : "text-gray-200";
+                                const flash = delta === "up" ? "flash-up" : delta === "down" ? "flash-down" : "";
+                                const arrow = delta === "up" ? "▲" : delta === "down" ? "▼" : "";
+                                const isValueCol = isHighlightedFlowColumn(col, FLOAT_VALUE_COLUMNS);
+                                return (
+                                  <td
+                                    key={col}
+                                    className={`px-3 py-2 whitespace-nowrap font-mono ${color} ${flash} ${isValueCol ? "w-32" : ""}`}
+                                  >
+                                    {isValueCol ? (
+                                      <span className="flex items-center justify-end gap-1 w-full">
+                                        <span className="inline-block w-4 text-center">{arrow || ""}</span>
+                                        <span className="inline-block min-w-[6rem] text-right">{formatFlowValue(val)}</span>
+                                      </span>
+                                    ) : (
+                                      <span className="flex items-center gap-1">
+                                        <span className="inline-block w-4 text-center">{arrow || ""}</span>
+                                        <span>{formatFlowValue(val)}</span>
+                                      </span>
+                                    )}
+                                  </td>
+                                );
+                              })}
+                            </tr>
+                            {rowActive && (
+                              <tr className="border-b border-gray-900 bg-gray-950/70">
+                                <td colSpan={floatFlowColumns.length || 1} className="px-3 py-2">
+                                  {renderFixingsTable()}
+                                </td>
+                              </tr>
+                            )}
+                          </React.Fragment>
+                        );
+                      }) : (
                         <tr>
                           <td colSpan={floatFlowColumns.length || 1} className="px-3 py-4 text-center text-gray-500">No floating cashflows available.</td>
                         </tr>

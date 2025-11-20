@@ -95,6 +95,7 @@ function DatafeedPageInner() {
   const [modalApprox, setModalApprox] = React.useState<any>(null);
   const [modalFixedFlows, setModalFixedFlows] = React.useState<any[]>([]);
   const [modalFloatFlows, setModalFloatFlows] = React.useState<any[]>([]);
+  const [modalFloatFixings, setModalFloatFixings] = React.useState<{ index: number | null; columns: string[]; rows: any[]; loading?: boolean } | null>(null);
   React.useEffect(() => {
     swapSnapshotRef.current = modalSwapRow ?? swapSnapshot;
   }, [modalSwapRow, swapSnapshot]);
@@ -331,6 +332,7 @@ function DatafeedPageInner() {
       setModalRisk(null);
       setModalFixedFlows([]);
       setModalFloatFlows([]);
+      setModalFloatFixings(null);
       setModalSwapRow(null);
       return;
     }
@@ -445,6 +447,14 @@ function DatafeedPageInner() {
         const rows = Array.isArray(msg.rows) ? msg.rows : [];
         setModalFloatFlows(rows);
         console.log("[swap details] float flows update", rows);
+      } else if (msg.type === "float_fixings") {
+        if (msg.swapId && msg.swapId !== swapIdRef.current) return;
+        setModalFloatFixings({
+          index: typeof msg.index === "number" ? msg.index : null,
+          columns: Array.isArray(msg.columns) ? msg.columns : [],
+          rows: Array.isArray(msg.rows) ? msg.rows : [],
+          loading: false,
+        });
       } else if (msg.type === "error") {
         console.error("[swap details worker] error", msg.error);
       }
@@ -469,6 +479,17 @@ function DatafeedPageInner() {
     () => data.map((d, i) => ({ id: i, Term: d.Term, Rate: d.Rate })),
     [data]
   );
+
+  const requestFloatFixings = React.useCallback((rowIndex: number | null) => {
+    if (!detailsRef.current) return;
+    if (!swapIdRef.current) return;
+    if (rowIndex == null) {
+      setModalFloatFixings(null);
+      return;
+    }
+    setModalFloatFixings({ index: rowIndex, columns: [], rows: [], loading: true });
+    detailsRef.current.postMessage({ type: "floatFixings", swapId: swapIdRef.current, index: rowIndex });
+  }, []);
 const renderRateEditCell = React.useCallback((params: GridRenderEditCellParams) => {
     return <RateEditCellComponent {...params} />;
   }, []);
@@ -1063,6 +1084,8 @@ const renderRateEditCell = React.useCallback((params: GridRenderEditCellParams) 
                 onFullReval={recalibrate}
                 fixedFlows={modalFixedFlows}
                 floatFlows={modalFloatFlows}
+                floatFixings={modalFloatFixings}
+                onRequestFloatFixings={requestFloatFixings}
               />
             </Modal>
           )}

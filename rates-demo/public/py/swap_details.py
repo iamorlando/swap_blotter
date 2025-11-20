@@ -243,3 +243,9 @@ def get_float_flows(new_md:pd.DataFrame=None)->pd.DataFrame:
     df['Cashflow'] = -df['Notional']*df['Accrual Fraction']*(df['Rate']/100)
     df['NPV'] = df['Discount Factor']*df['Cashflow']
     return df
+
+def get_fixings_table(idx:int)->pd.DataFrame:
+    return pd.DataFrame({ # example
+        'Date':[d.date() for d in swap_context['fixings'].index],
+        'Fixing':[v for v in swap_context['fixings'].values]
+    })

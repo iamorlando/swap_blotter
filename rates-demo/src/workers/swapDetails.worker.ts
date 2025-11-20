@@ -86,6 +86,35 @@ function computeFloatFlows(rows?: MarketRow[]): any[] {
   }
 }
 
+function fetchFixingsTable(index: number | null): { columns: string[]; rows: any[] } | null {
+  if (!pyodide || index == null || Number.isNaN(index)) return null;
+  pyodide.globals.set("swap_fixings_row_index", Number(index));
+  const pyCode = `
+import json
+idx = int(swap_fixings_row_index)
+table = get_fixings_table(idx)
+columns = list(table.columns) if hasattr(table, 'columns') else []
+if hasattr(table, 'columns'):
+    for col in table.columns:
+        ser = table[col]
+        if hasattr(ser, 'dt'):
+            table[col] = ser.astype(str)
+result = {
+    'columns': columns,
+    'rows': table.to_dict(orient='records') if hasattr(table, 'to_dict') else []
+}
+del swap_fixings_row_index
+json.dumps(result)
+`;
+  try {
+    const res = runPy(pyCode);
+    return res ? JSON.parse(res as string) : null;
+  } catch (err) {
+    console.error("[swap details worker] fetchFixingsTable error", err);
+    return null;
+  }
+}
+
 function emitRiskAndPrice(swapId: string | null) {
   const riskJson = runPy("import json\njson.dumps(get_swap_risk().to_dict())");
   const priceJson = runPy("import json\njson.dumps(get_current_swap_price().to_dict())");
@@ -136,6 +165,7 @@ from py.swap_details import (
     get_current_swap_price,
     get_fixed_flows,
     get_float_flows,
+    get_fixings_table,
 )
 `;
 
@@ -251,6 +281,21 @@ del swap_curve_update_json
       const rows = Array.isArray(msg.market) ? (msg.market as Array<{ Term: string; Rate: number }>) : [];
       ctx.postMessage({ type: "fixed_flows", swapId: msg.swapId, rows: computeFixedFlows(rows) });
       ctx.postMessage({ type: "float_flows", swapId: msg.swapId, rows: computeFloatFlows(rows) });
+    } catch (e) {
+      ctx.postMessage({ type: "error", swapId: msg.swapId, error: String(e) });
+    }
+  } else if (msg.type === "floatFixings") {
+    if (!initialized) return;
+    try {
+      const idx = typeof msg.index === "number" ? msg.index : null;
+      const result = fetchFixingsTable(idx);
+      ctx.postMessage({
+        type: "float_fixings",
+        swapId: msg.swapId,
+        index: idx,
+        columns: result?.columns ?? [],
+        rows: result?.rows ?? [],
+      });
     } catch (e) {
       ctx.postMessage({ type: "error", swapId: msg.swapId, error: String(e) });
     }
