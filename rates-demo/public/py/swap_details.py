@@ -251,7 +251,7 @@ def _form_fixings_df(period_idx:int)->pd.DataFrame:
     global swap_context
     curve = swap_context['curve']
     swp = swap_context['swap']
-    table = swp.leg2.periods[period_idx].fixing_table(curve=curve)
+    table = swp.leg2.periods[period_idx].fixings_table(curve=curve)
     table=table['sofr']
     cols = ['ObservationDate', 'AccrualFraction', 'HedgingNotional', 'Fixing']
     df = pd.DataFrame(table, columns=cols,index = table.index).assign(
@@ -262,11 +262,16 @@ def _form_fixings_df(period_idx:int)->pd.DataFrame:
         Risk = lambda x: table['risk'],
     )
     df = df.rename(columns={'ObservationDate':'Observation Date','AccrualFraction':'Accrual Fraction','HedgingNotional':'Hedging Notional'})
-    swap_context.setdefault('float_leg',{}).setdefault('periods',{})[period_idx]['fixings_df'] = df
+    swap_context.setdefault('float_leg',{})\
+        .setdefault('periods',{})\
+        .setdefault(period_idx, {})['fixings_df'] = df
     return df
 def get_fixings_df(period_idx:int)->pd.DataFrame:
     global swap_context
-    return swap_context.get('float_leg',{}).get('periods',{})[period_idx].get('fixings_df',_form_fixings_df(period_idx))
+    return swap_context.get('float_leg',{})\
+        .get('periods',{})\
+            .get(period_idx,{})\
+                .get('fixings_df',_form_fixings_df(period_idx))
 
 def set_curve_deltas():
     global swap_context
@@ -286,10 +291,10 @@ def get_shocked_curve(new_md:pd.DataFrame)->Curve:
     shocked_nodes = {d: v for d, v in zip(base_curve.nodes.keys, updated_dfs)}
     shocked_curve = Curve(
         id=base_curve.id,
-        convention=base_curve.convention,
-        calendar=base_curve.calendar,
-        modifier=base_curve.modifier,
-        interpolation=base_curve.interpolation,
+        convention=base_curve.meta.convention,
+        calendar=base_curve.meta.calendar,
+        modifier=base_curve.meta.modifier,
+        interpolation='log_linear',
         nodes=shocked_nodes
     )
     return shocked_curve
@@ -317,8 +322,9 @@ def get_clicked_cashflow_fixings_data(idx,new_md:pd.DataFrame)->Tuple[pd.Series,
     if 'float_leg' not in swap_context or 'cashflows' not in swap_context['float_leg']:
         return pd.Series(dtype=float),pd.DataFrame()
     rate,df,fixings_df = get_updated_fixings_df(idx,new_md)
+    cf_row = swap_context['float_leg']['cashflows'].iloc[idx].copy()
     cf_row['Rate'] = rate
-    cf_row = cf_row['Discount Factor'] = df
+    cf_row['Discount Factor'] = df
     cf_row['Cashflow'] = -cf_row['Notional']*cf_row['Accrual Fraction']*(rate/100)
     cf_row['NPV'] = cf_row['Cashflow'] * df
     return cf_row,fixings_df

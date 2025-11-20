@@ -9,6 +9,7 @@ type FloatFixingsState = {
   index: number | null;
   columns: string[];
   rows: any[];
+  cashflow?: Record<string, any> | null;
   loading?: boolean;
 };
 
@@ -138,16 +139,31 @@ export function SwapModalShell({
     return Object.keys(fixedFlows[0]);
   }, [fixedFlows]);
   const floatFlowColumns = React.useMemo(() => {
+    if (!floatFlows || !floatFlows.length) {
+      return floatFixings?.cashflow ? Object.keys(floatFixings.cashflow) : [];
+    }
+    const cols = [...Object.keys(floatFlows[0])];
+    if (floatFixings?.cashflow) {
+      Object.keys(floatFixings.cashflow).forEach((key) => {
+        if (!cols.includes(key)) cols.push(key);
+      });
+    }
+    return cols;
+  }, [floatFlows, floatFixings]);
+  const floatRowsForDisplay = React.useMemo(() => {
     if (!floatFlows || !floatFlows.length) return [];
-    return Object.keys(floatFlows[0]);
-  }, [floatFlows]);
+    const activeIdx = typeof floatFixings?.index === "number" ? floatFixings.index : null;
+    const overrideRow = floatFixings?.cashflow && typeof floatFixings.cashflow === "object" ? floatFixings.cashflow : null;
+    if (activeIdx == null || !overrideRow) return floatFlows;
+    return floatFlows.map((row, idx) => (idx === activeIdx ? { ...row, ...overrideRow } : row));
+  }, [floatFlows, floatFixings]);
   const annotatedFixedFlows = React.useMemo(
     () => annotateFlowRows(fixedFlows, fixedFlowColumns, prevFixedFlowsRef),
     [fixedFlows, fixedFlowColumns]
   );
   const annotatedFloatFlows = React.useMemo(
-    () => annotateFlowRows(floatFlows, floatFlowColumns, prevFloatFlowsRef),
-    [floatFlows, floatFlowColumns]
+    () => annotateFlowRows(floatRowsForDisplay, floatFlowColumns, prevFloatFlowsRef),
+    [floatRowsForDisplay, floatFlowColumns]
   );
   const totalFixedNPV = React.useMemo(() => {
     return annotatedFixedFlows.reduce((sum, row) => {

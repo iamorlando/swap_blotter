@@ -95,10 +95,14 @@ function DatafeedPageInner() {
   const [modalApprox, setModalApprox] = React.useState<any>(null);
   const [modalFixedFlows, setModalFixedFlows] = React.useState<any[]>([]);
   const [modalFloatFlows, setModalFloatFlows] = React.useState<any[]>([]);
-  const [modalFloatFixings, setModalFloatFixings] = React.useState<{ index: number | null; columns: string[]; rows: any[]; loading?: boolean } | null>(null);
+  const [modalFloatFixings, setModalFloatFixings] = React.useState<{ index: number | null; columns: string[]; rows: any[]; cashflow?: Record<string, any> | null; loading?: boolean } | null>(null);
+  const floatFixingsIndexRef = React.useRef<number | null>(null);
   React.useEffect(() => {
     swapSnapshotRef.current = modalSwapRow ?? swapSnapshot;
   }, [modalSwapRow, swapSnapshot]);
+  React.useEffect(() => {
+    floatFixingsIndexRef.current = modalFloatFixings?.index ?? null;
+  }, [modalFloatFixings?.index]);
   const handleOpenSwap = React.useCallback((row: BlotterRow) => {
     setSwapSnapshot(row);
     setModalSwapRow(row);
@@ -209,6 +213,15 @@ function DatafeedPageInner() {
         pushApproxMarket(curveRows);
         if (swapIdRef.current && detailsRef.current) {
           detailsRef.current.postMessage({ type: "fixedFlows", market: curveRows, swapId: swapIdRef.current });
+          const activeFixIdx = floatFixingsIndexRef.current;
+          if (activeFixIdx != null) {
+            detailsRef.current.postMessage({
+              type: "floatFixings",
+              market: curveRows,
+              swapId: swapIdRef.current,
+              index: activeFixIdx,
+            });
+          }
         }
         if (showMarketOverlay) setShowMarketOverlay(false);
         if (msg.movedTerm) {
@@ -453,6 +466,7 @@ function DatafeedPageInner() {
           index: typeof msg.index === "number" ? msg.index : null,
           columns: Array.isArray(msg.columns) ? msg.columns : [],
           rows: Array.isArray(msg.rows) ? msg.rows : [],
+          cashflow: msg.cashflow && typeof msg.cashflow === "object" ? msg.cashflow as Record<string, any> : null,
           loading: false,
         });
       } else if (msg.type === "error") {
@@ -485,11 +499,14 @@ function DatafeedPageInner() {
     if (!swapIdRef.current) return;
     if (rowIndex == null) {
       setModalFloatFixings(null);
+      floatFixingsIndexRef.current = null;
       return;
     }
-    setModalFloatFixings({ index: rowIndex, columns: [], rows: [], loading: true });
-    detailsRef.current.postMessage({ type: "floatFixings", swapId: swapIdRef.current, index: rowIndex });
-  }, []);
+    const marketRows = Array.isArray(data) && data.length ? data : null;
+    setModalFloatFixings({ index: rowIndex, columns: [], rows: [], cashflow: null, loading: true });
+    floatFixingsIndexRef.current = rowIndex;
+    detailsRef.current.postMessage({ type: "floatFixings", swapId: swapIdRef.current, index: rowIndex, market: marketRows });
+  }, [data]);
 const renderRateEditCell = React.useCallback((params: GridRenderEditCellParams) => {
     return <RateEditCellComponent {...params} />;
   }, []);
