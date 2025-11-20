@@ -192,6 +192,7 @@ from py.swap_details import (
     get_fixed_flows,
     get_float_flows,
     get_clicked_cashflow_fixings_data,
+    build_swap_termsheet_html,
 )
 `;
 
@@ -324,6 +325,15 @@ del swap_curve_update_json
         rows: result?.rows ?? [],
         cashflow: result?.cashflow ?? null,
       });
+    } catch (e) {
+      ctx.postMessage({ type: "error", swapId: msg.swapId, error: String(e) });
+    }
+  } else if (msg.type === "termsheet") {
+    if (!initialized) return;
+    try {
+      const htmlJson = runPy("import json\njson.dumps(build_swap_termsheet_html(swap_context['swap_row']))");
+      const html = htmlJson ? JSON.parse(htmlJson as string) : null;
+      ctx.postMessage({ type: "termsheet", swapId: msg.swapId, html });
     } catch (e) {
       ctx.postMessage({ type: "error", swapId: msg.swapId, error: String(e) });
     }

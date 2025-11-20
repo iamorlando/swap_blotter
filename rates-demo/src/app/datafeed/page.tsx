@@ -154,9 +154,11 @@ function DatafeedPageInner() {
   const swapSnapshotRef = React.useRef<BlotterRow | null>(null);
   const linkPauseRef = React.useRef(false);
   const activeSwapId = swapId;
+  const jsPdfLoaderRef = React.useRef<Promise<any> | null>(null);
   // Show frosted overlays until each section has first data
   const [showMarketOverlay, setShowMarketOverlay] = React.useState(true);
   const [showCalibOverlay, setShowCalibOverlay] = React.useState(true);
+  const [termsheetLoading, setTermsheetLoading] = React.useState(false);
   const normalizeRateInput = React.useCallback((val: any, fallback: number) => {
     const num = Number(val);
     if (!Number.isFinite(num)) return fallback;
@@ -348,6 +350,7 @@ function DatafeedPageInner() {
       setModalFloatFlows([]);
       setModalFloatFixings(null);
       setModalSwapRow(null);
+      setTermsheetLoading(false);
       return;
     }
     const existing = approxOverrides[activeSwapId];
@@ -431,6 +434,52 @@ function DatafeedPageInner() {
     approxRef.current.postMessage({ type: "swaps", swaps, risk });
   }, []);
 
+  const loadJsPdf = React.useCallback(async () => {
+    if (typeof window === "undefined") return null;
+    if ((window as any).jspdf?.jsPDF) return (window as any).jspdf.jsPDF;
+    if (!jsPdfLoaderRef.current) {
+      jsPdfLoaderRef.current = new Promise((resolve, reject) => {
+        const script = document.createElement("script");
+        script.src = "https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js";
+        script.onload = () => {
+          const ctor = (window as any).jspdf?.jsPDF;
+          if (ctor) resolve(ctor);
+          else {
+            jsPdfLoaderRef.current = null;
+            reject(new Error("jsPDF unavailable"));
+          }
+        };
+        script.onerror = () => {
+          jsPdfLoaderRef.current = null;
+          reject(new Error("Failed to load jsPDF"));
+        };
+        document.body.appendChild(script);
+      });
+    }
+    return jsPdfLoaderRef.current;
+  }, []);
+
+  const convertHtmlToPdf = React.useCallback(async (html: string) => {
+    if (!html) return;
+    try {
+      const JsPDF = await loadJsPdf();
+      if (!JsPDF) throw new Error("jsPDF not ready");
+      const doc = new JsPDF({ unit: "pt", format: "a4" });
+      const text = stripHtml(html);
+      const lines = doc.splitTextToSize(text, 520);
+      doc.setFont("Helvetica", "normal");
+      doc.setFontSize(11);
+      doc.text(lines, 40, 60);
+      const blob = doc.output("blob");
+      const url = URL.createObjectURL(blob);
+      window.open(url, "_blank", "noopener");
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch (err) {
+      console.error("termsheet pdf", err);
+      alert("Unable to generate termsheet PDF.");
+    }
+  }, [loadJsPdf]);
+
   React.useEffect(() => {
     if (!sharedDetailsWorker) {
       sharedDetailsWorker = new Worker(new URL("../../workers/swapDetails.worker.ts", import.meta.url), { type: "module" });
@@ -470,6 +519,10 @@ function DatafeedPageInner() {
           cashflow: msg.cashflow && typeof msg.cashflow === "object" ? msg.cashflow as Record<string, any> : null,
           loading: false,
         });
+      } else if (msg.type === "termsheet") {
+        if (msg.swapId && msg.swapId !== swapIdRef.current) return;
+        setTermsheetLoading(false);
+        if (msg.html) convertHtmlToPdf(String(msg.html));
       } else if (msg.type === "error") {
         console.error("[swap details worker] error", msg.error);
       }
@@ -484,7 +537,7 @@ function DatafeedPageInner() {
       w.removeEventListener("message", onMessage);
       detailsRef.current = null;
     };
-  }, [applyModalSwapUpdate]);
+  }, [applyModalSwapUpdate, convertHtmlToPdf]);
 
   const clearApproximation = React.useCallback(() => {
     setApproxOverrides({});
@@ -494,6 +547,7 @@ function DatafeedPageInner() {
     () => data.map((d, i) => ({ id: i, Term: d.Term, Rate: d.Rate })),
     [data]
   );
+
 
   const requestFloatFixings = React.useCallback((rowIndex: number | null) => {
     if (!detailsRef.current) return;
@@ -508,6 +562,12 @@ function DatafeedPageInner() {
     floatFixingsIndexRef.current = rowIndex;
     detailsRef.current.postMessage({ type: "floatFixings", swapId: swapIdRef.current, index: rowIndex, market: marketRows });
   }, [data]);
+
+  const requestTermsheet = React.useCallback(() => {
+    if (!detailsRef.current || !swapIdRef.current) return;
+    setTermsheetLoading(true);
+    detailsRef.current.postMessage({ type: "termsheet", swapId: swapIdRef.current });
+  }, []);
 const renderRateEditCell = React.useCallback((params: GridRenderEditCellParams) => {
     return <RateEditCellComponent {...params} />;
   }, []);
@@ -1104,6 +1164,8 @@ const renderRateEditCell = React.useCallback((params: GridRenderEditCellParams) 
                 floatFlows={modalFloatFlows}
                 floatFixings={modalFloatFixings}
                 onRequestFloatFixings={requestFloatFixings}
+                onRequestTermsheet={requestTermsheet}
+                termsheetLoading={termsheetLoading}
               />
             </Modal>
           )}
@@ -1119,6 +1181,15 @@ export default function DatafeedPage() {
       <DatafeedPageInner />
     </React.Suspense>
   );
+}
+
+function stripHtml(html: string): string {
+  return html
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/p>/gi, "\n\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 type BlotterGridProps = {

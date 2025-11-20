@@ -1,3 +1,4 @@
 .DS_Store
 **.csv
 rates-demo/swaps.duckdb
+rates-demo/scripts/reset_neon_from_local.sh

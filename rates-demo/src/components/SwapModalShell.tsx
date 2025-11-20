@@ -25,6 +25,8 @@ type SwapModalShellProps = {
   floatFlows?: any[];
   floatFixings?: FloatFixingsState | null;
   onRequestFloatFixings?: (index: number | null) => void;
+  onRequestTermsheet?: () => void;
+  termsheetLoading?: boolean;
 };
 
 export function SwapModalShell({
@@ -38,6 +40,8 @@ export function SwapModalShell({
   floatFlows = [],
   floatFixings = null,
   onRequestFloatFixings,
+  onRequestTermsheet,
+  termsheetLoading,
 }: SwapModalShellProps) {
   const [tab, setTab] = React.useState<"pricing" | "cashflows" | "fixings" | "risk">("pricing");
   React.useEffect(() => { setTab("pricing"); }, [swapId]);
@@ -280,6 +284,26 @@ export function SwapModalShell({
             <InfoRow label="Maturity" value={fmtDate(maturityDate)} />
             <InfoRow label="Fixed rate" value={fmtPct(fixedRate)} />
             <InfoRow label="Swap type" value={(swapRow as any)?.SwapType ?? "SOFR"} />
+          </div>
+          <div>
+            <button
+              type="button"
+              onClick={onRequestTermsheet}
+              disabled={!onRequestTermsheet || termsheetLoading}
+              className="mt-2 flex items-center gap-1 text-xs text-amber-300 hover:text-amber-100 disabled:opacity-50"
+            >
+              {termsheetLoading ? (
+                <span>Generating termsheet…</span>
+              ) : (
+                <>
+                  <span>Open termsheet</span>
+                  <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
+                    <path d="M12.5 3a.5.5 0 000 1h3.793l-7.146 7.146a.5.5 0 10.707.707L17 4.707V8.5a.5.5 0 001 0V3.5a.5.5 0 00-.5-.5H12.5z" />
+                    <path d="M5 5a2 2 0 00-2 2v8a2 2 0 002 2h8a2 2 0 002-2v-3.5a.5.5 0 00-1 0V15a1 1 0 01-1 1H5a1 1 0 01-1-1V7a1 1 0 011-1h3.5a.5.5 0 000-1H5z" />
+                  </svg>
+                </>
+              )}
+            </button>
           </div>
         </div>
         <div className="flex items-center gap-2">
