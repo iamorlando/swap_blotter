@@ -92,7 +92,7 @@ function fetchFixingsTable(index: number | null): { columns: string[]; rows: any
   const pyCode = `
 import json
 idx = int(swap_fixings_row_index)
-table = get_fixings_table(idx)
+table = get_clicked_cashflow_fixings_data(idx)
 columns = list(table.columns) if hasattr(table, 'columns') else []
 if hasattr(table, 'columns'):
     for col in table.columns:
@@ -165,7 +165,7 @@ from py.swap_details import (
     get_current_swap_price,
     get_fixed_flows,
     get_float_flows,
-    get_fixings_table,
+    get_clicked_cashflow_fixings_data,
 )
 `;
 
