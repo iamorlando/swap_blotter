@@ -121,6 +121,7 @@ export function SwapModalShell({
   const prevFixedFlowsRef = React.useRef<Record<string, number>>({});
   const prevFloatFlowsRef = React.useRef<Record<string, number>>({});
   const prevTotalFixedNPVRef = React.useRef<number | null>(null);
+  const prevTotalFloatNPVRef = React.useRef<number | null>(null);
   const fixedFlowColumns = React.useMemo(() => {
     if (!fixedFlows || !fixedFlows.length) return [];
     return Object.keys(fixedFlows[0]);
@@ -143,11 +144,22 @@ export function SwapModalShell({
       return sum + (typeof val === "number" ? val : 0);
     }, 0);
   }, [annotatedFixedFlows]);
+  const totalFloatNPV = React.useMemo(() => {
+    return annotatedFloatFlows.reduce((sum, row) => {
+      const val = row?.NPV;
+      return sum + (typeof val === "number" ? val : 0);
+    }, 0);
+  }, [annotatedFloatFlows]);
   const legNPVBase = React.useMemo(() => {
     const prev = prevTotalFixedNPVRef.current;
     prevTotalFixedNPVRef.current = totalFixedNPV;
     return prev ?? totalFixedNPV;
   }, [totalFixedNPV]);
+  const floatNPVBase = React.useMemo(() => {
+    const prev = prevTotalFloatNPVRef.current;
+    prevTotalFloatNPVRef.current = totalFloatNPV;
+    return prev ?? totalFloatNPV;
+  }, [totalFloatNPV]);
 
   return (
     <div className="space-y-4 text-sm text-gray-200">
@@ -232,6 +244,10 @@ export function SwapModalShell({
             {cashflowSubTab === "floating" ? (
               <>
                 <div className="text-xs uppercase tracking-wide text-gray-500">Floating leg cashflows</div>
+                <div className="text-sm text-gray-200 flex items-center gap-2">
+                  <span className="text-gray-400">Leg NPV</span>
+                  {renderTicker("", floatNPVBase, totalFloatNPV, (v) => formatFlowValue(v), true)}
+                </div>
                 <div className="h-64 overflow-auto rounded-md border border-gray-800 bg-gray-950/60">
                   <table className="w-full text-xs text-gray-200">
                     <thead className="sticky top-0 bg-gray-900 border-b border-gray-800">
