@@ -13,9 +13,19 @@ type SwapModalShellProps = {
   modalApprox: any;
   onFullReval?: () => void;
   fixedFlows?: any[];
+  floatFlows?: any[];
 };
 
-export function SwapModalShell({ swapId, onClose, swapRow, riskData, modalApprox, onFullReval, fixedFlows = [] }: SwapModalShellProps) {
+export function SwapModalShell({
+  swapId,
+  onClose,
+  swapRow,
+  riskData,
+  modalApprox,
+  onFullReval,
+  fixedFlows = [],
+  floatFlows = [],
+}: SwapModalShellProps) {
   const [tab, setTab] = React.useState<"pricing" | "cashflows" | "fixings" | "risk">("pricing");
   React.useEffect(() => { setTab("pricing"); }, [swapId]);
   const [cashflowSubTab, setCashflowSubTab] = React.useState<"floating" | "fixed">("floating");
@@ -109,35 +119,24 @@ export function SwapModalShell({ swapId, onClose, swapRow, riskData, modalApprox
   };
 
   const prevFixedFlowsRef = React.useRef<Record<string, number>>({});
+  const prevFloatFlowsRef = React.useRef<Record<string, number>>({});
   const prevTotalFixedNPVRef = React.useRef<number | null>(null);
   const fixedFlowColumns = React.useMemo(() => {
     if (!fixedFlows || !fixedFlows.length) return [];
     return Object.keys(fixedFlows[0]);
   }, [fixedFlows]);
-  const annotatedFixedFlows = React.useMemo(() => {
-    const rows: Array<Record<string, any>> = [];
-    const nextPrev: Record<string, number> = {};
-    fixedFlows.forEach((row, idx) => {
-      const entry: Record<string, any> = { ...row, __delta: {} };
-      fixedFlowColumns.forEach((col) => {
-        const val = row[col];
-        if (typeof val === "number") {
-          const key = `${idx}-${col}`;
-          const prev = prevFixedFlowsRef.current[key];
-          let dir: "up" | "down" | "flat" = "flat";
-          if (prev != null) {
-            if (val > prev + 1e-10) dir = "up";
-            else if (val < prev - 1e-10) dir = "down";
-          }
-          entry.__delta[col] = dir;
-          nextPrev[key] = val;
-        }
-      });
-      rows.push(entry);
-    });
-    prevFixedFlowsRef.current = nextPrev;
-    return rows;
-  }, [fixedFlows, fixedFlowColumns]);
+  const floatFlowColumns = React.useMemo(() => {
+    if (!floatFlows || !floatFlows.length) return [];
+    return Object.keys(floatFlows[0]);
+  }, [floatFlows]);
+  const annotatedFixedFlows = React.useMemo(
+    () => annotateFlowRows(fixedFlows, fixedFlowColumns, prevFixedFlowsRef),
+    [fixedFlows, fixedFlowColumns]
+  );
+  const annotatedFloatFlows = React.useMemo(
+    () => annotateFlowRows(floatFlows, floatFlowColumns, prevFloatFlowsRef),
+    [floatFlows, floatFlowColumns]
+  );
   const totalFixedNPV = React.useMemo(() => {
     return annotatedFixedFlows.reduce((sum, row) => {
       const val = row?.NPV;
@@ -231,7 +230,56 @@ export function SwapModalShell({ swapId, onClose, swapRow, riskData, modalApprox
               </button>
             </div>
             {cashflowSubTab === "floating" ? (
-              <div className="text-gray-500 text-sm">Floating cashflows coming soon.</div>
+              <>
+                <div className="text-xs uppercase tracking-wide text-gray-500">Floating leg cashflows</div>
+                <div className="h-64 overflow-auto rounded-md border border-gray-800 bg-gray-950/60">
+                  <table className="w-full text-xs text-gray-200">
+                    <thead className="sticky top-0 bg-gray-900 border-b border-gray-800">
+                      <tr>
+                        {floatFlowColumns.map((col) => (
+                          <th key={col} className="px-3 py-2 text-left font-medium text-gray-300">{col}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {annotatedFloatFlows.length ? annotatedFloatFlows.map((row, idx) => (
+                        <tr key={idx} className="border-b border-gray-800">
+                          {floatFlowColumns.map((col) => {
+                            const val = row[col];
+                            const delta = row.__delta?.[col] ?? "flat";
+                            const color = delta === "up" ? "text-green-400" : delta === "down" ? "text-red-400" : "text-gray-200";
+                            const flash = delta === "up" ? "flash-up" : delta === "down" ? "flash-down" : "";
+                            const arrow = delta === "up" ? "▲" : delta === "down" ? "▼" : "";
+                            const isValueCol = isHighlightedFlowColumn(col, FLOAT_VALUE_COLUMNS);
+                            return (
+                              <td
+                                key={col}
+                                className={`px-3 py-2 whitespace-nowrap font-mono ${color} ${flash} ${isValueCol ? "w-32" : ""}`}
+                              >
+                                {isValueCol ? (
+                                  <span className="flex items-center justify-end gap-1 w-full">
+                                    <span className="inline-block w-4 text-center">{arrow || ""}</span>
+                                    <span className="inline-block min-w-[6rem] text-right">{formatFlowValue(val)}</span>
+                                  </span>
+                                ) : (
+                                  <span className="flex items-center gap-1">
+                                    <span className="inline-block w-4 text-center">{arrow || ""}</span>
+                                    <span>{formatFlowValue(val)}</span>
+                                  </span>
+                                )}
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      )) : (
+                        <tr>
+                          <td colSpan={floatFlowColumns.length || 1} className="px-3 py-4 text-center text-gray-500">No floating cashflows available.</td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </>
             ) : (
               <>
                 <div className="text-xs uppercase tracking-wide text-gray-500">Fixed leg cashflows</div>
@@ -257,7 +305,7 @@ export function SwapModalShell({ swapId, onClose, swapRow, riskData, modalApprox
                           const color = delta === "up" ? "text-green-400" : delta === "down" ? "text-red-400" : "text-gray-200";
                           const flash = delta === "up" ? "flash-up" : delta === "down" ? "flash-down" : "";
                           const arrow = delta === "up" ? "▲" : delta === "down" ? "▼" : "";
-                          const isValueCol = col === "NPV" || col === "Discount Factor";
+                          const isValueCol = isHighlightedFlowColumn(col, FIXED_VALUE_COLUMNS);
                           return (
                             <td
                               key={col}
@@ -330,4 +378,41 @@ function DataGridLike({ rows, cols }: { rows: any[]; cols: GridColDef<any>[] }) 
       </tbody>
     </table>
   );
+}
+
+const FIXED_VALUE_COLUMNS = new Set<string>(["npv", "discount factor"]);
+const FLOAT_VALUE_COLUMNS = new Set<string>(["npv", "discount factor", "rate", "cashflow"]);
+
+function isHighlightedFlowColumn(col: string, targets: Set<string>) {
+  if (!col) return false;
+  return targets.has(col.toLowerCase());
+}
+
+function annotateFlowRows(
+  flows: any[] = [],
+  columns: string[] = [],
+  prevRef: React.MutableRefObject<Record<string, number>>
+) {
+  const rows: Array<Record<string, any>> = [];
+  const nextPrev: Record<string, number> = {};
+  flows.forEach((row = {}, idx) => {
+    const entry: Record<string, any> = { ...row, __delta: {} };
+    columns.forEach((col) => {
+      const val = row?.[col];
+      if (typeof val === "number") {
+        const key = `${idx}-${col}`;
+        const prev = prevRef.current[key];
+        let dir: "up" | "down" | "flat" = "flat";
+        if (prev != null) {
+          if (val > prev + 1e-10) dir = "up";
+          else if (val < prev - 1e-10) dir = "down";
+        }
+        entry.__delta[col] = dir;
+        nextPrev[key] = val;
+      }
+    });
+    rows.push(entry);
+  });
+  prevRef.current = nextPrev;
+  return rows;
 }

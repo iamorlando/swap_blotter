@@ -54,6 +54,38 @@ function computeFixedFlows(rows?: MarketRow[]): any[] {
   }
 }
 
+function computeFloatFlows(rows?: MarketRow[]): any[] {
+  if (!pyodide) return [];
+  const payload = Array.isArray(rows) ? rows.map((r) => ({ Term: String(r.Term), Rate: Number(r.Rate) })) : null;
+  const pyCode = payload && payload.length
+    ? `import pandas as pd, json\nmd = pd.DataFrame(json.loads(r'''${escapeForPyExec(JSON.stringify(payload))}'''))\n` +
+      `md['Rate'] = md['Rate'].astype(float)\n` +
+      `out = get_float_flows(md)\n` +
+      `out = out.reset_index(drop=True) if hasattr(out, 'reset_index') else out\n` +
+      `if hasattr(out, 'columns'):\n` +
+      `    for col in out.columns:\n` +
+      `        ser = out[col]\n` +
+      `        if hasattr(ser, 'dt'):\n` +
+      `            out[col] = ser.astype(str)\n` +
+      `json.dumps(out.to_dict(orient='records'))`
+    : `import pandas as pd, json\nout = get_float_flows()\n` +
+      `out = out.reset_index(drop=True) if hasattr(out, 'reset_index') else out\n` +
+      `if hasattr(out, 'columns'):\n` +
+      `    for col in out.columns:\n` +
+      `        ser = out[col]\n` +
+      `        if hasattr(ser, 'dt'):\n` +
+      `            out[col] = ser.astype(str)\n` +
+      `json.dumps(out.to_dict(orient='records'))`;
+  try {
+    if (payload) console.log("[swap details worker] float flow payload", payload);
+    const result = runPy(pyCode);
+    return result ? JSON.parse(result as string) : [];
+  } catch (err) {
+    console.error("[swap details worker] computeFloatFlows error", err);
+    return [];
+  }
+}
+
 function emitRiskAndPrice(swapId: string | null) {
   const riskJson = runPy("import json\njson.dumps(get_swap_risk().to_dict())");
   const priceJson = runPy("import json\njson.dumps(get_current_swap_price().to_dict())");
@@ -102,7 +134,8 @@ from py.swap_details import (
     get_swap_fixing_index_name,
     update_curve_in_context,
     get_current_swap_price,
-    get_fixed_flows
+    get_fixed_flows,
+    get_float_flows,
 )
 `;
 
@@ -186,6 +219,7 @@ del swap_fixings_payload_json
       );
       emitRiskAndPrice(msg.swapId);
       ctx.postMessage({ type: "fixed_flows", swapId: msg.swapId, rows: computeFixedFlows() });
+      ctx.postMessage({ type: "float_flows", swapId: msg.swapId, rows: computeFloatFlows() });
     } catch (e) {
       ctx.postMessage({ type: "error", swapId: msg.swapId, error: String(e) });
     }
@@ -207,6 +241,7 @@ del swap_curve_update_json
       );
       emitRiskAndPrice(msg.swapId);
       ctx.postMessage({ type: "fixed_flows", swapId: msg.swapId, rows: computeFixedFlows() });
+      ctx.postMessage({ type: "float_flows", swapId: msg.swapId, rows: computeFloatFlows() });
     } catch (e) {
       ctx.postMessage({ type: "error", swapId: msg.swapId, error: String(e) });
     }
@@ -215,6 +250,7 @@ del swap_curve_update_json
     try {
       const rows = Array.isArray(msg.market) ? (msg.market as Array<{ Term: string; Rate: number }>) : [];
       ctx.postMessage({ type: "fixed_flows", swapId: msg.swapId, rows: computeFixedFlows(rows) });
+      ctx.postMessage({ type: "float_flows", swapId: msg.swapId, rows: computeFloatFlows(rows) });
     } catch (e) {
       ctx.postMessage({ type: "error", swapId: msg.swapId, error: String(e) });
     }

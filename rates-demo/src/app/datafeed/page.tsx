@@ -94,6 +94,7 @@ function DatafeedPageInner() {
   const riskMapRef = React.useRef<Record<string, any>>({});
   const [modalApprox, setModalApprox] = React.useState<any>(null);
   const [modalFixedFlows, setModalFixedFlows] = React.useState<any[]>([]);
+  const [modalFloatFlows, setModalFloatFlows] = React.useState<any[]>([]);
   React.useEffect(() => {
     swapSnapshotRef.current = modalSwapRow ?? swapSnapshot;
   }, [modalSwapRow, swapSnapshot]);
@@ -329,6 +330,7 @@ function DatafeedPageInner() {
       setModalApprox(null);
       setModalRisk(null);
       setModalFixedFlows([]);
+      setModalFloatFlows([]);
       setModalSwapRow(null);
       return;
     }
@@ -435,8 +437,14 @@ function DatafeedPageInner() {
         if (msg.price) applyModalSwapUpdate(msg.price as Record<string, unknown>);
       } else if (msg.type === "fixed_flows") {
         if (msg.swapId && msg.swapId !== swapIdRef.current) return;
-        setModalFixedFlows(Array.isArray(msg.rows) ? msg.rows : []);
-        console.log("[swap details] fixed flows update", msg.rows?.length ?? 0);
+        const rows = Array.isArray(msg.rows) ? msg.rows : [];
+        setModalFixedFlows(rows);
+        console.log("[swap details] fixed flows update", rows);
+      } else if (msg.type === "float_flows") {
+        if (msg.swapId && msg.swapId !== swapIdRef.current) return;
+        const rows = Array.isArray(msg.rows) ? msg.rows : [];
+        setModalFloatFlows(rows);
+        console.log("[swap details] float flows update", rows);
       } else if (msg.type === "error") {
         console.error("[swap details worker] error", msg.error);
       }
@@ -1054,6 +1062,7 @@ const renderRateEditCell = React.useCallback((params: GridRenderEditCellParams) 
                 modalApprox={modalApprox}
                 onFullReval={recalibrate}
                 fixedFlows={modalFixedFlows}
+                floatFlows={modalFloatFlows}
               />
             </Modal>
           )}
