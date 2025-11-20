@@ -31,6 +31,35 @@ type DragState = {
   targetIndex?: number;
 };
 
+const gridBaseSx = {
+  color: "var(--grid-text-color)",
+  border: 0,
+  "& .MuiDataGrid-columnHeaders": {
+    backgroundColor: "var(--grid-header-bg)",
+    color: "var(--grid-text-color)",
+  },
+  "& .MuiDataGrid-columnHeaderTitle": { fontWeight: 600 },
+  "& .MuiDataGrid-row": {
+    backgroundColor: "var(--grid-row-bg)",
+  },
+  "& .MuiDataGrid-cell": {
+    borderColor: "var(--grid-border-color)",
+    color: "var(--grid-text-color)",
+  },
+  "& .MuiDataGrid-columnSeparator": {
+    color: "var(--grid-border-color)",
+  },
+  "& .MuiDataGrid-row.Mui-hovered": {
+    backgroundColor: "var(--grid-hover-bg) !important",
+  },
+  "& .MuiDataGrid-row.Mui-selected": {
+    backgroundColor: "var(--grid-hover-bg) !important",
+  },
+  "& .MuiDataGrid-cell:focus, & .MuiDataGrid-cell:focus-within": {
+    outline: "none",
+  },
+} as const;
+
 const RateEditCellComponent = React.memo(function RateEditCellComponent(params: GridRenderEditCellParams) {
   const { api, id, field, value } = params;
   const [raw, setRaw] = React.useState(() => (value == null ? "" : String(Number(value) * 100)));
@@ -63,7 +92,7 @@ const RateEditCellComponent = React.memo(function RateEditCellComponent(params: 
       value={raw}
       onChange={onChange}
       variant="standard"
-      inputProps={{ style: { color: "#e5e7eb" } }}
+      inputProps={{ style: { color: "var(--grid-text-color)" } }}
       sx={{ width: "100%" }}
     />
   );
@@ -905,13 +934,9 @@ const renderRateEditCell = React.useCallback((params: GridRenderEditCellParams) 
           }
         }}
         sx={{
-          color: "#e5e7eb",
-          border: 0,
-          "& .MuiDataGrid-columnHeaders": { backgroundColor: "#0b1220" },
-          "& .MuiDataGrid-row": { backgroundColor: "#111827" },
-          "& .MuiDataGrid-cell": { borderColor: "#1f2937" },
-          "& .editable-cell": { backgroundColor: "#0b1220" },
-          "& .MuiDataGrid-cell--editing": { backgroundColor: "#111827" },
+          ...gridBaseSx,
+          "& .editable-cell": { backgroundColor: "var(--grid-editable-bg)" },
+          "& .MuiDataGrid-cell--editing": { backgroundColor: "var(--grid-editing-bg)" },
         }}
       />
         </div>
@@ -1466,11 +1491,7 @@ function BlotterGrid({ approxReady, approxOverrides, requestApproximation, clear
           disableColumnMenu
           hideFooter
           sx={{
-            color: '#e5e7eb',
-            border: 0,
-            '& .MuiDataGrid-columnHeaders': { backgroundColor: '#0b1220' },
-            '& .MuiDataGrid-row': { backgroundColor: '#111827' },
-            '& .MuiDataGrid-cell': { borderColor: '#1f2937' },
+            ...gridBaseSx,
           }}
         />
       </div>
