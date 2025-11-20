@@ -212,6 +212,28 @@ function DatafeedPageInner() {
     load();
     return () => { cancelled = true; };
   }, [counterpartyId]);
+
+  const prevCounterpartyRef = React.useRef<string | null>(null);
+  React.useEffect(() => {
+    const prev = prevCounterpartyRef.current;
+    if (prev && prev !== counterpartyApproxKey) {
+      approxRef.current?.postMessage({ type: "counterparty", id: prev, remove: true });
+    }
+    prevCounterpartyRef.current = counterpartyApproxKey;
+  }, [counterpartyApproxKey]);
+
+  React.useEffect(() => {
+    if (!approxReady) return;
+    if (!counterpartyApproxKey) return;
+    if (!counterpartyRow) return;
+    const npvVal = counterpartyRow.NPV == null ? 0 : Number(counterpartyRow.NPV);
+    approxRef.current?.postMessage({
+      type: "counterparty",
+      id: counterpartyApproxKey,
+      npv: npvVal,
+      risk: counterpartyRisk ? { ...counterpartyRisk, ID: counterpartyApproxKey } : null,
+    });
+  }, [approxReady, counterpartyApproxKey, counterpartyRow, counterpartyRisk]);
   const handleOpenSwap = React.useCallback((row: BlotterRow) => {
     setSwapSnapshot(row);
     setModalSwapRow(row);
@@ -410,9 +432,13 @@ function DatafeedPageInner() {
         if (activeSwap && map[String(activeSwap)]) {
           setModalApprox(map[String(activeSwap)]);
         }
+      } else if (msg.type === "counterpartyApprox") {
+        const rows = Array.isArray(msg.rows) ? msg.rows : [];
         const cpKey = counterpartyApproxIdRef.current;
-        if (cpKey && map[String(cpKey)] && typeof map[String(cpKey)].NPV === "number") {
-          setCounterpartyLiveNpv(Number(map[String(cpKey)].NPV));
+        if (!cpKey) return;
+        const match = rows.find((row: any) => String(row?.id ?? row?.ID) === cpKey);
+        if (match && typeof match.npv === "number") {
+          setCounterpartyLiveNpv(Number(match.npv));
         }
       } else if (msg.type === "error") {
         console.error("[approx worker] error", msg.error);
@@ -542,24 +568,8 @@ function DatafeedPageInner() {
 
   const requestApproximation = React.useCallback((swaps: any[], risk: any[]) => {
     if (!approxRef.current) return;
-    let payloadSwaps = swaps;
-    let payloadRisk = risk;
-    if (counterpartyApproxKey && counterpartyRow) {
-      const cpSwap = {
-        ID: counterpartyApproxKey,
-        id: counterpartyApproxKey,
-        FixedRate: 0,
-        ParRate: 0,
-        NPV: counterpartyRow.NPV == null ? 0 : Number(counterpartyRow.NPV),
-        Notional: counterpartyRow.Notional == null ? 0 : Number(counterpartyRow.Notional),
-      };
-      payloadSwaps = [...payloadSwaps, cpSwap];
-      if (counterpartyRisk) {
-        payloadRisk = [...payloadRisk, { ...counterpartyRisk, ID: counterpartyApproxKey }];
-      }
-    }
-    approxRef.current.postMessage({ type: "swaps", swaps: payloadSwaps, risk: payloadRisk });
-  }, [counterpartyApproxKey, counterpartyRow, counterpartyRisk]);
+    approxRef.current.postMessage({ type: "swaps", swaps, risk });
+  }, []);
 
   const openTermsheetHtml = React.useCallback((html: string) => {
     if (!html) return;
