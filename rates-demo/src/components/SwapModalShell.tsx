@@ -196,6 +196,8 @@ export function SwapModalShell({
       onRequestFloatFixings(rowIdx);
     }
   }, [onRequestFloatFixings, activeFixingsIndex]);
+  const prevFixingsRef = React.useRef<Record<string, number>>({});
+
   const renderFixingsTable = React.useCallback(() => {
     if (!floatFixings) return null;
     if (floatFixings.loading) {
@@ -208,7 +210,8 @@ export function SwapModalShell({
     if (!columns.length) {
       return <div className="text-xs text-gray-500">No fixings available.</div>;
     }
-    return (
+    const nextPrev: Record<string, number> = {};
+    const table = (
       <div className="max-h-48 overflow-auto border border-gray-800 rounded-md bg-gray-950/80">
         <table className="w-full text-[11px] text-gray-200">
           <thead className="bg-gray-900 border-b border-gray-800 sticky top-0">
@@ -221,11 +224,50 @@ export function SwapModalShell({
           <tbody>
             {rows.length ? rows.map((fixRow, idx) => (
               <tr key={idx} className="border-b border-gray-800">
-                {columns.map((col) => (
-                  <td key={col} className="px-2 py-1 whitespace-nowrap font-mono text-gray-200">
-                    {formatFlowValue(fixRow?.[col])}
-                  </td>
-                ))}
+                {columns.map((col) => {
+                  const rawVal = fixRow?.[col];
+                  const isTicker = TICKING_FIXING_COLUMNS.has(col.toLowerCase());
+                  const displayVal = formatFlowValue(rawVal);
+                  let arrow = "";
+                  let color = "text-gray-200";
+                  let flash = "";
+                  if (isTicker) {
+                    const num = typeof rawVal === "number" ? rawVal : Number(rawVal);
+                    if (Number.isFinite(num)) {
+                      const key = `${idx}-${col.toLowerCase()}`;
+                      const prev = prevFixingsRef.current[key];
+                      let dir: "up" | "down" | "flat" = "flat";
+                      if (prev != null) {
+                        if (num > prev + 1e-10) dir = "up";
+                        else if (num < prev - 1e-10) dir = "down";
+                      }
+                      nextPrev[key] = num;
+                      if (dir === "up") {
+                        arrow = "▲";
+                        color = "text-green-400";
+                        flash = "flash-up";
+                      } else if (dir === "down") {
+                        arrow = "▼";
+                        color = "text-red-400";
+                        flash = "flash-down";
+                      } else {
+                        color = "text-gray-200";
+                      }
+                    }
+                  }
+                  return (
+                    <td key={col} className={`px-2 py-1 whitespace-nowrap font-mono ${color} ${flash}`}>
+                      {isTicker ? (
+                        <span className="flex items-center gap-1">
+                          <span className="inline-block w-4 text-center">{arrow}</span>
+                          <span>{displayVal}</span>
+                        </span>
+                      ) : (
+                        displayVal
+                      )}
+                    </td>
+                  );
+                })}
               </tr>
             )) : (
               <tr>
@@ -236,6 +278,8 @@ export function SwapModalShell({
         </table>
       </div>
     );
+    prevFixingsRef.current = nextPrev;
+    return table;
   }, [floatFixings]);
 
   return (
@@ -491,6 +535,7 @@ function DataGridLike({ rows, cols }: { rows: any[]; cols: GridColDef<any>[] }) 
 
 const FIXED_VALUE_COLUMNS = new Set<string>(["npv", "discount factor"]);
 const FLOAT_VALUE_COLUMNS = new Set<string>(["npv", "discount factor", "rate", "cashflow"]);
+const TICKING_FIXING_COLUMNS = new Set<string>(["fixing", "hedging notional"]);
 
 function isHighlightedFlowColumn(col: string, targets: Set<string>) {
   if (!col) return false;

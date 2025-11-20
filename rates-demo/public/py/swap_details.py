@@ -307,7 +307,7 @@ def get_updated_fixings_df(idx,new_md:pd.DataFrame)->Tuple[float,float,pd.DataFr
     base_fixings_df = get_fixings_df(idx)
     new_fixings_df = swap_context['swap'].leg2.periods[idx].fixings_table(curve=shocked_curve)['sofr'] # TODO TIE sofr to swap row
     only_forwsrds_df = new_fixings_df.loc[lambda x: x.index >= swap_context['valuation_date']]
-    base_fixings_df['Fixing'] = only_forwsrds_df['rates']
+    base_fixings_df.loc[lambda x: x.index >= swap_context['valuation_date'], 'Fixing'] = new_fixings_df['rates']
     base_fixings_df['Hedging Notional'] = only_forwsrds_df['notional']
     base_fixings_df['Risk'] = only_forwsrds_df['risk']
     period_rate = swap_context['swap'].leg2.periods[idx].rate(curve=shocked_curve).real
