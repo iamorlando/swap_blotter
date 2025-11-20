@@ -10,7 +10,7 @@ import HorizontalSplit from "@/components/HorizontalSplit";
 import { columnsMeta as generatedColumns, idField as generatedIdField } from "@/generated/blotterColumns";
 import Modal from "@/components/Modal";
 import { SwapModalShell } from "@/components/SwapModalShell";
-import { CopyTableButton, tableToTsv, getTableDragHandlers } from "@/components/TableExportControls";
+import { CopyTableButton, tableToTsv } from "@/components/TableExportControls";
 
 let sharedDatafeedWorker: Worker | null = null;
 let datafeedInitialized = false;
@@ -30,6 +30,15 @@ type DragState = {
   baseCurve: Array<{ Term: string; Rate: number }>;
   targetIndex?: number;
 };
+
+function coerceRecord(row: Record<string, any> | null | undefined) {
+  if (!row) return null;
+  const out: Record<string, any> = {};
+  Object.entries(row).forEach(([key, value]) => {
+    out[key] = typeof value === "bigint" ? Number(value) : value;
+  });
+  return out;
+}
 
 const gridBaseSx = {
   color: "var(--grid-text-color)",
@@ -103,9 +112,16 @@ function DatafeedPageInner() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const swapId = searchParams.get("swap");
+  const counterpartyId = searchParams.get("counterparty");
   const closeSwap = React.useCallback(() => {
     const sp = new URLSearchParams(searchParams?.toString() || "");
     sp.delete("swap");
+    const qs = sp.toString();
+    router.replace(qs ? `${pathname}?${qs}` : `${pathname}`, { scroll: false });
+  }, [router, pathname, searchParams]);
+  const closeCounterparty = React.useCallback(() => {
+    const sp = new URLSearchParams(searchParams?.toString() || "");
+    sp.delete("counterparty");
     const qs = sp.toString();
     router.replace(qs ? `${pathname}?${qs}` : `${pathname}`, { scroll: false });
   }, [router, pathname, searchParams]);
@@ -117,6 +133,10 @@ function DatafeedPageInner() {
   const [approxOverrides, setApproxOverrides] = React.useState<Record<string, any>>({});
   const [swapSnapshot, setSwapSnapshot] = React.useState<BlotterRow | null>(null);
   const [modalSwapRow, setModalSwapRow] = React.useState<BlotterRow | null>(null);
+  const [counterpartyRow, setCounterpartyRow] = React.useState<Record<string, any> | null>(null);
+  const [counterpartyRisk, setCounterpartyRisk] = React.useState<Record<string, any> | null>(null);
+  const [counterpartyLiveNpv, setCounterpartyLiveNpv] = React.useState<number | null>(null);
+  const [counterpartyLoading, setCounterpartyLoading] = React.useState(false);
   const detailsRef = React.useRef<Worker | null>(null);
   const [detailsReady, setDetailsReady] = React.useState(false);
   const [modalRisk, setModalRisk] = React.useState<any | null>(null);
@@ -127,12 +147,71 @@ function DatafeedPageInner() {
   const [modalFloatFlows, setModalFloatFlows] = React.useState<any[]>([]);
   const [modalFloatFixings, setModalFloatFixings] = React.useState<{ index: number | null; columns: string[]; rows: any[]; cashflow?: Record<string, any> | null; loading?: boolean } | null>(null);
   const floatFixingsIndexRef = React.useRef<number | null>(null);
+  const counterpartyApproxIdRef = React.useRef<string | null>(null);
+  const counterpartyApproxKey = React.useMemo(() => (counterpartyId ? `counterparty:${counterpartyId}` : null), [counterpartyId]);
+  const usdFormatter = React.useMemo(() => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 }), []);
+  const formatUsd = React.useCallback((val: number | null | undefined) => {
+    if (val == null || Number.isNaN(val)) return "—";
+    return usdFormatter.format(val).replace("$", "$ ");
+  }, [usdFormatter]);
+  const formatDateValue = React.useCallback((value: any) => {
+    if (!value) return "—";
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return "—";
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  }, []);
   React.useEffect(() => {
     swapSnapshotRef.current = modalSwapRow ?? swapSnapshot;
   }, [modalSwapRow, swapSnapshot]);
   React.useEffect(() => {
     floatFixingsIndexRef.current = modalFloatFixings?.index ?? null;
   }, [modalFloatFixings?.index]);
+  React.useEffect(() => {
+    counterpartyApproxIdRef.current = counterpartyApproxKey;
+  }, [counterpartyApproxKey]);
+  React.useEffect(() => {
+    if (!counterpartyId) {
+      setCounterpartyRow(null);
+      setCounterpartyRisk(null);
+      setCounterpartyLiveNpv(null);
+      setCounterpartyLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setCounterpartyLoading(true);
+    const params = new URLSearchParams({ id: counterpartyId, rowType: "Counterparty" });
+    const load = async () => {
+      try {
+        const [mainRes, riskRes] = await Promise.all([
+          fetch(`/api/main-agg?${params.toString()}`, { cache: "no-store" }),
+          fetch(`/api/risk-agg?${params.toString()}`, { cache: "no-store" }),
+        ]);
+        if (!mainRes.ok) throw new Error(`main agg fetch failed: ${mainRes.status}`);
+        if (!riskRes.ok) throw new Error(`risk agg fetch failed: ${riskRes.status}`);
+        const [mainJson, riskJson] = await Promise.all([mainRes.json(), riskRes.json()]);
+        if (cancelled) return;
+        const mainRow = coerceRecord(mainJson?.row);
+        const riskRow = coerceRecord(riskJson?.row);
+        setCounterpartyRow(mainRow);
+        setCounterpartyRisk(riskRow);
+        setCounterpartyLiveNpv(mainRow?.NPV == null ? null : Number(mainRow.NPV));
+      } catch (err) {
+        if (!cancelled) {
+          setCounterpartyRow(null);
+          setCounterpartyRisk(null);
+          setCounterpartyLiveNpv(null);
+        }
+        console.error("[counterparty] fetch", err);
+      } finally {
+        if (!cancelled) setCounterpartyLoading(false);
+      }
+    };
+    load();
+    return () => { cancelled = true; };
+  }, [counterpartyId]);
   const handleOpenSwap = React.useCallback((row: BlotterRow) => {
     setSwapSnapshot(row);
     setModalSwapRow(row);
@@ -331,6 +410,10 @@ function DatafeedPageInner() {
         if (activeSwap && map[String(activeSwap)]) {
           setModalApprox(map[String(activeSwap)]);
         }
+        const cpKey = counterpartyApproxIdRef.current;
+        if (cpKey && map[String(cpKey)] && typeof map[String(cpKey)].NPV === "number") {
+          setCounterpartyLiveNpv(Number(map[String(cpKey)].NPV));
+        }
       } else if (msg.type === "error") {
         console.error("[approx worker] error", msg.error);
         setApproxFatal(String(msg.error ?? "Unknown error"));
@@ -459,8 +542,24 @@ function DatafeedPageInner() {
 
   const requestApproximation = React.useCallback((swaps: any[], risk: any[]) => {
     if (!approxRef.current) return;
-    approxRef.current.postMessage({ type: "swaps", swaps, risk });
-  }, []);
+    let payloadSwaps = swaps;
+    let payloadRisk = risk;
+    if (counterpartyApproxKey && counterpartyRow) {
+      const cpSwap = {
+        ID: counterpartyApproxKey,
+        id: counterpartyApproxKey,
+        FixedRate: 0,
+        ParRate: 0,
+        NPV: counterpartyRow.NPV == null ? 0 : Number(counterpartyRow.NPV),
+        Notional: counterpartyRow.Notional == null ? 0 : Number(counterpartyRow.Notional),
+      };
+      payloadSwaps = [...payloadSwaps, cpSwap];
+      if (counterpartyRisk) {
+        payloadRisk = [...payloadRisk, { ...counterpartyRisk, ID: counterpartyApproxKey }];
+      }
+    }
+    approxRef.current.postMessage({ type: "swaps", swaps: payloadSwaps, risk: payloadRisk });
+  }, [counterpartyApproxKey, counterpartyRow, counterpartyRisk]);
 
   const openTermsheetHtml = React.useCallback((html: string) => {
     if (!html) return;
@@ -1128,6 +1227,13 @@ const renderRateEditCell = React.useCallback((params: GridRenderEditCellParams) 
     </div>
   );
 
+  const counterpartyBaseNpv = counterpartyRow?.NPV == null ? null : Number(counterpartyRow.NPV);
+  const counterpartyLiveValue = counterpartyLiveNpv ?? counterpartyBaseNpv;
+  const cpDelta = counterpartyBaseNpv == null || counterpartyLiveValue == null ? 0 : counterpartyLiveValue - counterpartyBaseNpv;
+  const cpDir = cpDelta > 1e-6 ? "up" : cpDelta < -1e-6 ? "down" : "flat";
+  const cpArrow = cpDir === "up" ? "▲" : cpDir === "down" ? "▼" : "";
+  const cpColor = cpDir === "up" ? "text-green-400" : cpDir === "down" ? "text-red-400" : "text-gray-200";
+
   return (
     <div className="min-h-screen bg-gray-950 text-gray-100">
       {fatalError || approxFatal ? (
@@ -1142,6 +1248,41 @@ const renderRateEditCell = React.useCallback((params: GridRenderEditCellParams) 
       ) : (
         <>
           <VerticalSplit top={Top} bottom={Bottom} initialTopHeight={520} />
+          {counterpartyId && (
+            <Modal title={`Counterparty ${counterpartyId}`}>
+              {counterpartyLoading ? (
+                <div className="text-sm text-gray-400">Loading counterparty…</div>
+              ) : counterpartyRow ? (
+                <div className="space-y-4 text-sm text-gray-200">
+                  <div className="space-y-1">
+                    <div className="text-xs uppercase tracking-wide text-gray-500">Live NPV</div>
+                    <div className={`flex items-center gap-2 font-mono text-base ${cpColor}`}>
+                      {cpArrow && <span>{cpArrow}</span>}
+                      <span>{formatUsd(counterpartyLiveValue)}</span>
+                    </div>
+                    <div className="text-xs text-gray-500">Base NPV: {formatUsd(counterpartyBaseNpv)}</div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <div className="text-[11px] uppercase tracking-wide text-gray-500">Notional</div>
+                      <div className="font-mono">{formatUsd(counterpartyRow.Notional == null ? null : Number(counterpartyRow.Notional))}</div>
+                    </div>
+                    <div>
+                      <div className="text-[11px] uppercase tracking-wide text-gray-500">Pricing time</div>
+                      <div className="font-mono">{formatDateValue(counterpartyRow.PricingTime)}</div>
+                    </div>
+                  </div>
+                  <div>
+                    <button onClick={closeCounterparty} className="px-3 py-1.5 rounded-md border border-gray-700 bg-gray-900 text-gray-300 hover:bg-gray-800">
+                      Close
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="text-sm text-gray-400">Counterparty data unavailable.</div>
+              )}
+            </Modal>
+          )}
           {swapId && (
             <Modal title={`Swap ${swapId}`}>
               <SwapModalShell
@@ -1311,6 +1452,20 @@ function BlotterGrid({ approxReady, approxOverrides, requestApproximation, clear
     };
     if (nIdx >= 0) cols[nIdx] = { ...cols[nIdx], ...notionalCol };
     else cols.push(notionalCol);
+    const cpIdx = cols.findIndex((c) => c.field === "CounterpartyID");
+    if (cpIdx >= 0) {
+      cols[cpIdx] = {
+        ...cols[cpIdx],
+        width: 200,
+        renderCell: (params) => (
+          <CounterpartyLinkCell
+            value={params?.value}
+            onPauseTicks={onPauseTicks}
+            onResumeTicks={onResumeTicks}
+          />
+        ),
+      } as GridColDef<BlotterRow>;
+    }
     return cols;
   }, [apiCols, fmtDate, onOpenSwap, onPauseTicks, onResumeTicks, usd]);
 
@@ -1523,6 +1678,29 @@ function SwapLink({ id, row, onOpenSwap, onPauseTicks, onResumeTicks }: { id: st
   return (
     <a href={`/swap/${id ?? ""}`} onMouseDown={onMouseDown} onMouseUp={onMouseUp} onClick={onClick} className="text-blue-400 underline hover:text-blue-300">
       {id == null ? "—" : String(id)}
+    </a>
+  );
+}
+
+function CounterpartyLinkCell({ value, onPauseTicks, onResumeTicks }: { value: string | number | null | undefined; onPauseTicks?: () => void; onResumeTicks?: () => void }) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const id = value == null ? null : String(value);
+  const onMouseDown = () => onPauseTicks?.();
+  const onMouseUp = () => onResumeTicks?.();
+  const onClick = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    (e as any).defaultMuiPrevented = true;
+    if (!id) return;
+    const sp = new URLSearchParams(searchParams?.toString() || "");
+    sp.set("counterparty", id);
+    router.push(`${pathname}?${sp.toString()}`, { scroll: false });
+  };
+  return (
+    <a href={id ? `?counterparty=${id}` : "#"} onMouseDown={onMouseDown} onMouseUp={onMouseUp} onClick={onClick} className="text-blue-400 underline hover:text-blue-300">
+      {id ?? "—"}
     </a>
   );
 }
