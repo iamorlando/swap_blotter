@@ -329,3 +329,210 @@ def get_clicked_cashflow_fixings_data(idx,new_md:pd.DataFrame)->Tuple[pd.Series,
     cf_row['NPV'] = cf_row['Cashflow'] * df
     fixings_df = fixings_df.drop(columns=['Risk'])
     return cf_row,fixings_df
+
+
+
+
+
+
+from datetime import datetime
+
+def _fmt_date(val) -> str:
+    """Format a date-like value as 'dd MMM yyyy'."""
+    if pd.isna(val):
+        return ""
+    if isinstance(val, str):
+        try:
+            val = pd.to_datetime(val)
+        except Exception:
+            return val
+    if isinstance(val, (datetime, pd.Timestamp)):
+        return val.strftime("%d %b %Y")
+    return str(val)
+
+def _fmt_num(val, decimals=2, thousand_sep=True) -> str:
+    if pd.isna(val):
+        return ""
+    try:
+        v = float(val)
+    except Exception:
+        return str(val)
+    if thousand_sep:
+        return f"{v:,.{decimals}f}"
+    else:
+        return f"{v:.{decimals}f}"
+
+def build_swap_termsheet_html(
+    swap_row: pd.Series,
+    dealer_name: str = 'ACME INC',
+    fixed_leg_ccy: str = "USD",
+    float_leg_ccy: str = "USD",
+) -> str:
+    """
+    Build an HTML term sheet for a single swap row.
+
+    Expected columns in swap_row:
+      ID, CounterpartyID, StartDate, TerminationDate, FixedRate,
+      NPV, ParRate, ParSpread, Notional, SwapType, PayFixed, PricingTime
+    """
+
+    # --- Extract & format data ---
+    trade_id      = str(swap_row.get("ID", ""))
+    cpty          = str(swap_row.get("CounterpartyID", "Counterparty"))
+    start_date    = _fmt_date(swap_row.get("StartDate"))
+    end_date      = _fmt_date(swap_row.get("TerminationDate"))
+    pricing_time  = _fmt_date(swap_row.get("StartDate"))
+    fixed_rate    = float(swap_row.get("FixedRate", 0.0))
+    par_rate      = float(swap_row.get("ParRate", fixed_rate))
+    par_spread_bp = float(swap_row.get("ParSpread", 0.0))   # looks like bp already in your data
+    npv           = 0.0
+    notional      = float(swap_row.get("Notional", 0.0))
+    swap_type     = str(swap_row.get("SwapType", "SOFR"))
+    pay_fixed     = bool(swap_row.get("PayFixed", False))
+
+    # sign convention: your example has negative notional
+    notional_abs = abs(notional)
+
+    fixed_payer   = cpty if pay_fixed else dealer_name
+    fixed_receiver = dealer_name if pay_fixed else cpty
+
+    # --- HTML template ---
+    html = f"""
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Swap Term Sheet - {trade_id}</title>
+  <style>
+    body {{
+      font-family: Arial, sans-serif;
+      font-size: 11px;
+      margin: 24px;
+      color: #222;
+    }}
+    h1, h2, h3 {{
+      margin: 6px 0;
+    }}
+    h1 {{
+      font-size: 16px;
+      text-align: center;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }}
+    h2 {{
+      font-size: 13px;
+      border-bottom: 1px solid #888;
+      padding-bottom: 3px;
+      margin-top: 18px;
+    }}
+    table {{
+      border-collapse: collapse;
+      width: 100%;
+      margin-top: 6px;
+    }}
+    th, td {{
+      border: 1px solid #bbb;
+      padding: 4px 6px;
+      vertical-align: top;
+    }}
+    th {{
+      background: #f4f4f4;
+      text-align: left;
+      font-weight: bold;
+    }}
+    .two-col {{
+      width: 50%;
+      vertical-align: top;
+      border: none;
+    }}
+    .two-col table {{
+      width: 100%;
+      margin-top: 0;
+    }}
+    .small {{
+      font-size: 9px;
+      color: #555;
+    }}
+  </style>
+</head>
+<body>
+
+  <h1>Interest Rate Swap Term Sheet</h1>
+
+  <table>
+    <tr>
+      <th style="width: 25%;">Dealer</th>
+      <td style="width: 75%;">{dealer_name}</td>
+    </tr>
+    <tr>
+      <th>Client</th>
+      <td>{cpty}</td>
+    </tr>
+    <tr>
+      <th>Trade ID</th>
+      <td>{trade_id}</td>
+    </tr>
+    <tr>
+      <th>Trade Date</th>
+      <td>{pricing_time}</td>
+    </tr>
+  </table>
+
+  <h2>Key Economic Terms</h2>
+  <table>
+    <tr><th style="width: 30%;">Field</th><th>Value</th></tr>
+    <tr><td>Product</td><td>{swap_type} Interest Rate Swap</td></tr>
+    <tr><td>Effective Date</td><td>{start_date}</td></tr>
+    <tr><td>Termination Date</td><td>{end_date}</td></tr>
+    <tr><td>Notional</td><td>{fixed_leg_ccy} {_fmt_num(notional_abs, 0)}</td></tr>
+    <tr><td>NPV (to Dealer)</td><td>{fixed_leg_ccy} {_fmt_num(npv, 2)}</td></tr>
+    <tr><td>Fixed Rate</td><td>{_fmt_num(fixed_rate, 4)} %</td></tr>
+    <tr><td>Fixed Payer</td><td>{fixed_payer}</td></tr>
+    <tr><td>Fixed Receiver</td><td>{fixed_receiver}</td></tr>
+  </table>
+
+  <h2>Leg Details</h2>
+  <table style="border: none;">
+    <tr>
+      <td class="two-col">
+        <h3>Fixed Leg</h3>
+        <table>
+          <tr><th style="width: 40%;">Item</th><th>Details</th></tr>
+          <tr><td>Payer</td><td>{fixed_payer}</td></tr>
+          <tr><td>Receiver</td><td>{fixed_receiver}</td></tr>
+          <tr><td>Currency</td><td>{fixed_leg_ccy}</td></tr>
+          <tr><td>Notional</td><td>{fixed_leg_ccy} {_fmt_num(notional_abs, 0)}</td></tr>
+          <tr><td>Fixed Rate</td><td>{_fmt_num(fixed_rate, 4)} %</td></tr>
+          <tr><td>Day Count</td><td>Actual/360</td></tr>
+          <tr><td>Payment Frequency</td><td>Quarterly</td></tr>
+          <tr><td>Business Day Convention</td><td>Modified Following</td></tr>
+        </table>
+      </td>
+      <td class="two-col">
+        <h3>Floating Leg</h3>
+        <table>
+          <tr><th style="width: 40%;">Item</th><th>Details</th></tr>
+          <tr><td>Index</td><td>{swap_type} Overnight</td></tr>
+          <tr><td>Currency</td><td>{float_leg_ccy}</td></tr>
+          <tr><td>Spread</td><td>{_fmt_num(par_spread_bp, 4)} bp</td></tr>
+          <tr><td>Reset Frequency</td><td>Daily (compounded)</td></tr>
+          <tr><td>Payment Frequency</td><td>Quarterly</td></tr>
+          <tr><td>Day Count</td><td>Actual/360</td></tr>
+          <tr><td>Business Day Convention</td><td>Modified Following</td></tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+
+  <h2>Notes & Disclaimers</h2>
+  <p class="small">
+    This term sheet is for discussion purposes only and does not constitute an offer, commitment,
+    recommendation or advice to enter into any transaction. Any transaction will be subject to
+    final credit approval, internal review and execution of definitive documentation.
+  </p>
+
+</body>
+</html>
+"""
+    return html.strip()
+

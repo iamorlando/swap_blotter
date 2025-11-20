@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { GridColDef } from "@mui/x-data-grid";
+import { CopyTableButton, tableToTsv, getTableDragHandlers } from "./TableExportControls";
 
 export type BlotterRow = Record<string, unknown> & { id: string | number };
 
@@ -340,12 +341,15 @@ export function SwapModalShell({
             </div>
             {cashflowSubTab === "floating" ? (
               <>
-                <div className="text-xs uppercase tracking-wide text-gray-500">Floating leg cashflows</div>
+                <div className="flex items-center justify-between text-xs uppercase tracking-wide text-gray-500">
+                  <div>Floating leg cashflows</div>
+                  <CopyTableButton getText={() => tableToTsv(floatFlowColumns, floatRowsForDisplay)} />
+                </div>
                 <div className="text-sm text-gray-200 flex items-center gap-2">
                   <span className="text-gray-400">Leg NPV</span>
                   {renderTicker("", floatNPVBase, totalFloatNPV, (v) => formatFlowValue(v), true)}
                 </div>
-                <div className="h-64 overflow-auto rounded-md border border-gray-800 bg-gray-950/60">
+                <div className="h-64 overflow-auto rounded-md border border-gray-800 bg-gray-950/60" {...getTableDragHandlers(() => tableToTsv(floatFlowColumns, floatRowsForDisplay))}>
                   <table className="w-full text-xs text-gray-200">
                     <thead className="sticky top-0 bg-gray-900 border-b border-gray-800">
                       <tr>
@@ -411,12 +415,15 @@ export function SwapModalShell({
               </>
             ) : (
               <>
-                <div className="text-xs uppercase tracking-wide text-gray-500">Fixed leg cashflows</div>
+                <div className="flex items-center justify-between text-xs uppercase tracking-wide text-gray-500">
+                  <div>Fixed leg cashflows</div>
+                  <CopyTableButton getText={() => tableToTsv(fixedFlowColumns, fixedFlows)} />
+                </div>
                 <div className="text-sm text-gray-200 flex items-center gap-2">
                   <span className="text-gray-400">Leg NPV</span>
                   {renderTicker("", legNPVBase, totalFixedNPV, (v) => formatFlowValue(v), true)}
                 </div>
-                <div className="h-64 overflow-auto rounded-md border border-gray-800 bg-gray-950/60">
+                <div className="h-64 overflow-auto rounded-md border border-gray-800 bg-gray-950/60" {...getTableDragHandlers(() => tableToTsv(fixedFlowColumns, fixedFlows))}>
                   <table className="w-full text-xs text-gray-200">
                   <thead className="sticky top-0 bg-gray-900 border-b border-gray-800">
                     <tr>
