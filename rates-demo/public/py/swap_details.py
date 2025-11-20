@@ -170,28 +170,41 @@ def form_risk_matrix(deltas:List[pd.DataFrame],referenced_base_length:int=0)->np
         arr[i] = d.to_numpy().squeeze()
     return arr
 
-def get_df_sensitivities(duals:List[Dual])->pd.DataFrame:
+def reproject_sensitivities_to_md(duals:List[Dual])->pd.DataFrame:
     global swap_context
     solver:Solver = swap_context['solver']
     currency = 'USD' # TODO TIE TO rateslib defaults, get that from swap row (convert SOFR to usd_irs spec)
     dualsdict = [{currency:d} for d in duals]
-    dfs = [solver.delta(d) for d in dualsdict]
-    return form_risk_matrix(dfs,referenced_base_length=len(dfs[0].index))
+    ds = [solver.delta(d) for d in dualsdict]
+    return form_risk_matrix(ds,referenced_base_length=len(ds[0].index))
+
+
 
 def save_swap_fixed_base_flows():
     global swap_context
     swp = swap_context['swap']
-    solver = swap_context['solver']
     calibrated_curve = swap_context['curve']
     valuation_date = swap_context['valuation_date']
-    l1_dfs = [calibrated_curve[d.payment] for d in swp.leg1.periods if d.payment > valuation_date]
+    dfs = [calibrated_curve[d.payment] for d in swp.leg1.periods if d.payment > valuation_date]
     flows =get_fixed_cashflows()
     swap_context.setdefault('fixed_leg',{})
     swap_context['fixed_leg']['cashflows'] = flows
-    swap_context['fixed_leg']['df_sensitivities'] = get_df_sensitivities(l1_dfs)
+    swap_context['fixed_leg']['df_sensitivities'] = reproject_sensitivities_to_md(dfs)
 
-def get_fixed_flows(new_md:pd.DataFrame=None)->pd.DataFrame:
+def save_swap_float_base_flows():
     global swap_context
+    swp = swap_context['swap']
+    calibrated_curve = swap_context['curve']
+    valuation_date = swap_context['valuation_date']
+    dfs = [calibrated_curve[d.payment] for d in swp.leg2.periods if d.payment > valuation_date]
+    rates = [p.rate(curve=calibrated_curve) for p in swp.leg2.periods if p.payment > valuation_date]
+    flows =get_floating_cashflows()
+    swap_context.setdefault('float_leg',{})
+    swap_context['float_leg']['cashflows'] = flows
+    swap_context['float_leg']['df_sensitivities'] = reproject_sensitivities_to_md(dfs)
+    swap_context['float_leg']['rate_sensitivities'] = reproject_sensitivities_to_md(rates)
+
+def get_md_changes(new_md:pd.DataFrame=None)->pd.DataFrame:
     base_md=swap_context.get('calibration_md',pd.DataFrame())
     if base_md is None or base_md.empty:
         return pd.DataFrame()
@@ -201,11 +214,31 @@ def get_fixed_flows(new_md:pd.DataFrame=None)->pd.DataFrame:
     else:
         new_md['Rate'] = new_md['Rate']
         new_md = new_md.set_index('Term')[['Rate']].squeeze() * 100  # rateslib expects percents
-    md_changes = (new_md - base_md).fillna(0.0).to_numpy(dtype='float64')
+    return (new_md - base_md).fillna(0.0).to_numpy(dtype='float64')
+
+def get_fixed_flows(new_md:pd.DataFrame=None)->pd.DataFrame:
+    global swap_context
+    md_changes = get_md_changes(new_md)
     df = swap_context['fixed_leg']['cashflows'].copy()
     dfs = df['Discount Factor'].to_numpy(dtype='float64')
     sensitivities = swap_context['fixed_leg']['df_sensitivities'] 
     updated_dfs = dfs + (sensitivities @ (md_changes * 100))
     df['Discount Factor'] = updated_dfs
     df['NPV'] = updated_dfs * df['Cashflow']
+    return df
+
+def get_float_flows(new_md:pd.DataFrame=None)->pd.DataFrame:
+    global swap_context
+    md_changes = get_md_changes(new_md)
+    df = swap_context['float_leg']['cashflows'].copy()
+    dfs = df['Discount Factor'].to_numpy(dtype='float64')
+    rates = df['Rate'].to_numpy(dtype='float64')
+    sensitivities = swap_context['float_leg']['df_sensitivities'] 
+    rate_sensitivities = swap_context['float_leg']['rate_sensitivities']
+    updated_dfs = dfs + (sensitivities @ (md_changes * 100))
+    updated_rates = rates + (rate_sensitivities @ (md_changes * 100))
+    df['Discount Factor'] = updated_dfs
+    df['Rate'] = updated_rates
+    df['Cashflow'] = -df['Notional']*df['Accrual Fraction']*(df['Rate']/100)
+    df['NPV'] = df['Discount Factor']*df['Cashflow']
     return df

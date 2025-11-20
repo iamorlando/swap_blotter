@@ -84,7 +84,7 @@ export function SwapModalShell({ swapId, onClose, swapRow, riskData, modalApprox
     return { cols, rows, dvo1 };
   }, [riskRow]);
 
-  const renderTicker = (label: string, baseVal: number | null | undefined, liveVal: number | null | undefined, fmt: (n: number) => string) => {
+  const renderTicker = (label: string, baseVal: number | null | undefined, liveVal: number | null | undefined, fmt: (n: number) => string, minimal?: boolean) => {
     const base = baseVal == null ? null : Number(baseVal);
     const live = liveVal == null ? null : Number(liveVal);
     const delta = base == null || live == null ? 0 : live - base;
@@ -92,10 +92,10 @@ export function SwapModalShell({ swapId, onClose, swapRow, riskData, modalApprox
     const arrow = dir === "up" ? "▲" : dir === "down" ? "▼" : "";
     const color = dir === "up" ? "text-green-400" : dir === "down" ? "text-red-400" : "text-gray-200";
     return (
-      <div className={`flex items-center gap-1 text-sm ${color}`}>
-        <span className="uppercase text-[11px] tracking-wide text-gray-500">{label}</span>
-        {arrow && <span>{arrow}</span>}
-        <span className="font-mono">{live == null ? "—" : fmt(live)}</span>
+      <div className={`flex items-center ${minimal ? "gap-1 text-xs" : "gap-1 text-sm"} ${color}`}>
+        {!minimal && <span className="uppercase text-[11px] tracking-wide text-gray-500">{label}</span>}
+        <span className="inline-block w-4 text-center">{arrow || ""}</span>
+        <span className={`font-mono ${minimal ? "min-w-[5rem] text-right" : ""}`}>{live == null ? "—" : fmt(live)}</span>
       </div>
     );
   };
@@ -109,6 +109,7 @@ export function SwapModalShell({ swapId, onClose, swapRow, riskData, modalApprox
   };
 
   const prevFixedFlowsRef = React.useRef<Record<string, number>>({});
+  const prevTotalFixedNPVRef = React.useRef<number | null>(null);
   const fixedFlowColumns = React.useMemo(() => {
     if (!fixedFlows || !fixedFlows.length) return [];
     return Object.keys(fixedFlows[0]);
@@ -137,6 +138,17 @@ export function SwapModalShell({ swapId, onClose, swapRow, riskData, modalApprox
     prevFixedFlowsRef.current = nextPrev;
     return rows;
   }, [fixedFlows, fixedFlowColumns]);
+  const totalFixedNPV = React.useMemo(() => {
+    return annotatedFixedFlows.reduce((sum, row) => {
+      const val = row?.NPV;
+      return sum + (typeof val === "number" ? val : 0);
+    }, 0);
+  }, [annotatedFixedFlows]);
+  const legNPVBase = React.useMemo(() => {
+    const prev = prevTotalFixedNPVRef.current;
+    prevTotalFixedNPVRef.current = totalFixedNPV;
+    return prev ?? totalFixedNPV;
+  }, [totalFixedNPV]);
 
   return (
     <div className="space-y-4 text-sm text-gray-200">
@@ -221,8 +233,14 @@ export function SwapModalShell({ swapId, onClose, swapRow, riskData, modalApprox
             {cashflowSubTab === "floating" ? (
               <div className="text-gray-500 text-sm">Floating cashflows coming soon.</div>
             ) : (
-              <div className="h-64 overflow-auto rounded-md border border-gray-800 bg-gray-950/60">
-                <table className="w-full text-xs text-gray-200">
+              <>
+                <div className="text-xs uppercase tracking-wide text-gray-500">Fixed leg cashflows</div>
+                <div className="text-sm text-gray-200 flex items-center gap-2">
+                  <span className="text-gray-400">Leg NPV</span>
+                  {renderTicker("", legNPVBase, totalFixedNPV, (v) => formatFlowValue(v), true)}
+                </div>
+                <div className="h-64 overflow-auto rounded-md border border-gray-800 bg-gray-950/60">
+                  <table className="w-full text-xs text-gray-200">
                   <thead className="sticky top-0 bg-gray-900 border-b border-gray-800">
                     <tr>
                       {fixedFlowColumns.map((col) => (
@@ -239,10 +257,23 @@ export function SwapModalShell({ swapId, onClose, swapRow, riskData, modalApprox
                           const color = delta === "up" ? "text-green-400" : delta === "down" ? "text-red-400" : "text-gray-200";
                           const flash = delta === "up" ? "flash-up" : delta === "down" ? "flash-down" : "";
                           const arrow = delta === "up" ? "▲" : delta === "down" ? "▼" : "";
+                          const isValueCol = col === "NPV" || col === "Discount Factor";
                           return (
-                            <td key={col} className={`px-3 py-2 whitespace-nowrap font-mono ${color} ${flash}`}>
-                              {arrow && <span className="mr-1">{arrow}</span>}
-                              <span>{formatFlowValue(val)}</span>
+                            <td
+                              key={col}
+                              className={`px-3 py-2 whitespace-nowrap font-mono ${color} ${flash} ${isValueCol ? "w-32" : ""}`}
+                            >
+                              {isValueCol ? (
+                                <span className="flex items-center justify-end gap-1 w-full">
+                                  <span className="inline-block w-4 text-center">{arrow || ""}</span>
+                                  <span className="inline-block min-w-[6rem] text-right">{formatFlowValue(val)}</span>
+                                </span>
+                              ) : (
+                                <span className="flex items-center gap-1">
+                                  <span className="inline-block w-4 text-center">{arrow || ""}</span>
+                                  <span>{formatFlowValue(val)}</span>
+                                </span>
+                              )}
                             </td>
                           );
                         })}
@@ -253,8 +284,9 @@ export function SwapModalShell({ swapId, onClose, swapRow, riskData, modalApprox
                       </tr>
                     )}
                   </tbody>
-                </table>
-              </div>
+                  </table>
+                </div>
+              </>
             )}
           </div>
         )}
