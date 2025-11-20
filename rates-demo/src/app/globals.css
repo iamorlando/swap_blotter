@@ -3,6 +3,78 @@
 @tailwind utilities;
 
 html, body { height: 100%; }
+body {
+  background-color: #060b16;
+  color: #e5e7eb;
+  transition: background-color 200ms ease, color 200ms ease;
+}
+:root {
+  color-scheme: dark;
+}
+:root[data-theme="light"] {
+  color-scheme: light;
+}
+:root[data-theme="light"] body {
+  background-color: #f4f6fb;
+  color: #111827;
+}
+
+:root[data-theme="light"] .bg-gray-950,
+:root[data-theme="light"] .bg-gray-950\/80,
+:root[data-theme="light"] .bg-gray-950\/70,
+:root[data-theme="light"] .bg-gray-950\/60 {
+  background-color: #f8fafc !important;
+}
+:root[data-theme="light"] .bg-gray-900,
+:root[data-theme="light"] .bg-gray-900\/95,
+:root[data-theme="light"] .bg-gray-900\/80,
+:root[data-theme="light"] .bg-gray-900\/50 {
+  background-color: #ffffff !important;
+}
+:root[data-theme="light"] .bg-gray-900\/80 {
+  background-color: rgba(255, 255, 255, 0.9) !important;
+}
+:root[data-theme="light"] .bg-gray-900\/50 {
+  background-color: rgba(255, 255, 255, 0.7) !important;
+}
+:root[data-theme="light"] .bg-gray-800,
+:root[data-theme="light"] .bg-gray-800\/40,
+:root[data-theme="light"] .bg-gray-800\/30 {
+  background-color: #e2e8f0 !important;
+}
+:root[data-theme="light"] .bg-gray-700 {
+  background-color: #d7deed !important;
+}
+:root[data-theme="light"] .bg-gray-600 {
+  background-color: #c7d5f1 !important;
+}
+:root[data-theme="light"] .text-gray-100,
+:root[data-theme="light"] .text-gray-200 {
+  color: #0f172a !important;
+}
+:root[data-theme="light"] .text-gray-300 {
+  color: #1f2937 !important;
+}
+:root[data-theme="light"] .text-gray-400 {
+  color: #475569 !important;
+}
+:root[data-theme="light"] .text-gray-500 {
+  color: #64748b !important;
+}
+:root[data-theme="light"] .text-gray-600 {
+  color: #94a3b8 !important;
+}
+:root[data-theme="light"] .border-gray-900,
+:root[data-theme="light"] .border-gray-800,
+:root[data-theme="light"] .border-gray-700 {
+  border-color: #d0d7e6 !important;
+}
+:root[data-theme="light"] .shadow-gray-900 {
+  --tw-shadow-color: rgba(15, 23, 42, 0.15);
+  --tw-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.1);
+}
+
+:root[data-theme="light"] .chart-border { border: 1px solid rgba(180,192,210,0.9); }
 .chart-border { border: 1px solid rgba(55,65,81,0.9); border-radius: 0.5rem; }
 
 /* Flash animations for up/down ticks */

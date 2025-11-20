@@ -331,7 +331,7 @@ del swap_curve_update_json
   } else if (msg.type === "termsheet") {
     if (!initialized) return;
     try {
-      const htmlJson = runPy("import json\njson.dumps(build_swap_termsheet_html(swap_context['swap_row']))");
+      const htmlJson = runPy("import json\njson.dumps(build_swap_termsheet_html())");
       const html = htmlJson ? JSON.parse(htmlJson as string) : null;
       ctx.postMessage({ type: "termsheet", swapId: msg.swapId, html });
     } catch (e) {

@@ -363,11 +363,12 @@ def _fmt_num(val, decimals=2, thousand_sep=True) -> str:
         return f"{v:.{decimals}f}"
 
 def build_swap_termsheet_html(
-    swap_row: pd.Series,
     dealer_name: str = 'ACME INC',
     fixed_leg_ccy: str = "USD",
     float_leg_ccy: str = "USD",
 ) -> str:
+    global swap_context
+    swap_row = swap_context['swap_row']
     """
     Build an HTML term sheet for a single swap row.
 
