@@ -154,7 +154,6 @@ function DatafeedPageInner() {
   const swapSnapshotRef = React.useRef<BlotterRow | null>(null);
   const linkPauseRef = React.useRef(false);
   const activeSwapId = swapId;
-  const jsPdfLoaderRef = React.useRef<Promise<any> | null>(null);
   // Show frosted overlays until each section has first data
   const [showMarketOverlay, setShowMarketOverlay] = React.useState(true);
   const [showCalibOverlay, setShowCalibOverlay] = React.useState(true);
@@ -434,51 +433,18 @@ function DatafeedPageInner() {
     approxRef.current.postMessage({ type: "swaps", swaps, risk });
   }, []);
 
-  const loadJsPdf = React.useCallback(async () => {
-    if (typeof window === "undefined") return null;
-    if ((window as any).jspdf?.jsPDF) return (window as any).jspdf.jsPDF;
-    if (!jsPdfLoaderRef.current) {
-      jsPdfLoaderRef.current = new Promise((resolve, reject) => {
-        const script = document.createElement("script");
-        script.src = "https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js";
-        script.onload = () => {
-          const ctor = (window as any).jspdf?.jsPDF;
-          if (ctor) resolve(ctor);
-          else {
-            jsPdfLoaderRef.current = null;
-            reject(new Error("jsPDF unavailable"));
-          }
-        };
-        script.onerror = () => {
-          jsPdfLoaderRef.current = null;
-          reject(new Error("Failed to load jsPDF"));
-        };
-        document.body.appendChild(script);
-      });
-    }
-    return jsPdfLoaderRef.current;
-  }, []);
-
-  const convertHtmlToPdf = React.useCallback(async (html: string) => {
+  const openTermsheetHtml = React.useCallback((html: string) => {
     if (!html) return;
     try {
-      const JsPDF = await loadJsPdf();
-      if (!JsPDF) throw new Error("jsPDF not ready");
-      const doc = new JsPDF({ unit: "pt", format: "a4" });
-      const text = stripHtml(html);
-      const lines = doc.splitTextToSize(text, 520);
-      doc.setFont("Helvetica", "normal");
-      doc.setFontSize(11);
-      doc.text(lines, 40, 60);
-      const blob = doc.output("blob");
+      const blob = new Blob([html], { type: "text/html" });
       const url = URL.createObjectURL(blob);
       window.open(url, "_blank", "noopener");
       setTimeout(() => URL.revokeObjectURL(url), 60_000);
     } catch (err) {
-      console.error("termsheet pdf", err);
-      alert("Unable to generate termsheet PDF.");
+      console.error("termsheet html", err);
+      alert("Unable to open termsheet.");
     }
-  }, [loadJsPdf]);
+  }, []);
 
   React.useEffect(() => {
     if (!sharedDetailsWorker) {
@@ -522,7 +488,7 @@ function DatafeedPageInner() {
       } else if (msg.type === "termsheet") {
         if (msg.swapId && msg.swapId !== swapIdRef.current) return;
         setTermsheetLoading(false);
-        if (msg.html) convertHtmlToPdf(String(msg.html));
+        if (msg.html) openTermsheetHtml(String(msg.html));
       } else if (msg.type === "error") {
         console.error("[swap details worker] error", msg.error);
       }
@@ -537,7 +503,7 @@ function DatafeedPageInner() {
       w.removeEventListener("message", onMessage);
       detailsRef.current = null;
     };
-  }, [applyModalSwapUpdate, convertHtmlToPdf]);
+  }, [applyModalSwapUpdate, openTermsheetHtml]);
 
   const clearApproximation = React.useCallback(() => {
     setApproxOverrides({});
@@ -1181,15 +1147,6 @@ export default function DatafeedPage() {
       <DatafeedPageInner />
     </React.Suspense>
   );
-}
-
-function stripHtml(html: string): string {
-  return html
-    .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/<\/p>/gi, "\n\n")
-    .replace(/<[^>]+>/g, "")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
 }
 
 type BlotterGridProps = {
