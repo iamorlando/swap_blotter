@@ -92,7 +92,7 @@ function fetchFixingsTable(index: number | null, rows?: MarketRow[]): { columns:
   pyodide.globals.set("swap_fixings_row_index", Number(index));
   pyodide.globals.set("swap_fixings_md_json", payload ? JSON.stringify(payload) : "[]");
   const pyCode = `
-import json, pandas as pd
+import json, pandas as pd, numpy as np, math
 idx = int(swap_fixings_row_index)
 md_rows = json.loads(swap_fixings_md_json)
 md_df = pd.DataFrame(md_rows)
@@ -100,7 +100,24 @@ if not md_df.empty:
     if 'Rate' in md_df.columns:
         md_df['Rate'] = md_df['Rate'].astype(float)
 cashflow_row, fixings_table = get_clicked_cashflow_fixings_data(idx, md_df if not md_df.empty else None)
-cashflow_dict = cashflow_row.to_dict() if hasattr(cashflow_row, 'to_dict') else {}
+def _coerce(val):
+    if hasattr(val, 'isoformat'):
+        return val.isoformat()
+    if isinstance(val, (pd.Timestamp, )):
+        return val.isoformat()
+    if isinstance(val, np.generic):
+        try:
+            val = val.item()
+        except Exception:
+            return None
+    if isinstance(val, float):
+        if math.isnan(val) or math.isinf(val):
+            return None
+    return val
+cashflow_dict = {}
+if hasattr(cashflow_row, 'items'):
+    for k, v in cashflow_row.items():
+        cashflow_dict[k] = _coerce(v)
 if hasattr(fixings_table, 'reset_index'):
     fixings_table = fixings_table.reset_index(drop=True)
 if hasattr(fixings_table, 'columns'):
@@ -109,7 +126,8 @@ if hasattr(fixings_table, 'columns'):
         if hasattr(ser, 'dt'):
             fixings_table[col] = ser.astype(str)
 columns = list(fixings_table.columns) if hasattr(fixings_table, 'columns') else []
-rows = fixings_table.to_dict(orient='records') if hasattr(fixings_table, 'to_dict') else []
+records = fixings_table.to_dict(orient='records') if hasattr(fixings_table, 'to_dict') else []
+rows = [{k: _coerce(v) for k, v in rec.items()} for rec in records]
 del swap_fixings_row_index
 del swap_fixings_md_json
 json.dumps({'cashflow': cashflow_dict, 'columns': columns, 'rows': rows})

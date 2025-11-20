@@ -327,4 +327,5 @@ def get_clicked_cashflow_fixings_data(idx,new_md:pd.DataFrame)->Tuple[pd.Series,
     cf_row['Discount Factor'] = df
     cf_row['Cashflow'] = -cf_row['Notional']*cf_row['Accrual Fraction']*(rate/100)
     cf_row['NPV'] = cf_row['Cashflow'] * df
+    fixings_df = fixings_df.drop(columns=['Risk'])
     return cf_row,fixings_df
