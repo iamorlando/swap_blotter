@@ -10,6 +10,7 @@ import HorizontalSplit from "@/components/HorizontalSplit";
 import { columnsMeta as generatedColumns, idField as generatedIdField } from "@/generated/blotterColumns";
 import Modal from "@/components/Modal";
 import { SwapModalShell } from "@/components/SwapModalShell";
+import { CopyTableButton, tableToTsv, getTableDragHandlers } from "@/components/TableExportControls";
 
 let sharedDatafeedWorker: Worker | null = null;
 let datafeedInitialized = false;
@@ -1376,6 +1377,7 @@ function BlotterGrid({ approxReady, approxOverrides, requestApproximation, clear
       };
     });
   }, [rows, approxOverrides]);
+  const getBlotterTableText = React.useCallback(() => tableToTsv(columns, displayRows), [columns, displayRows]);
 
   return (
     <div className="h-[420px] border border-gray-800 rounded-md bg-gray-900 flex flex-col">
@@ -1414,6 +1416,7 @@ function BlotterGrid({ approxReady, approxOverrides, requestApproximation, clear
                 : '0 of 0'}
             </span>
           </div>
+          <CopyTableButton getText={getBlotterTableText} />
         </div>
       </div>
 
