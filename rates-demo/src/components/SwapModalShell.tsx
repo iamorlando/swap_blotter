@@ -132,6 +132,7 @@ export function SwapModalShell({
 
   const prevFixedFlowsRef = React.useRef<Record<string, number>>({});
   const prevFloatFlowsRef = React.useRef<Record<string, number>>({});
+  const prevFixingsRef = React.useRef<Record<string, number>>({});
   const prevTotalFixedNPVRef = React.useRef<number | null>(null);
   const prevTotalFloatNPVRef = React.useRef<number | null>(null);
   const fixedFlowColumns = React.useMemo(() => {
@@ -196,8 +197,6 @@ export function SwapModalShell({
       onRequestFloatFixings(rowIdx);
     }
   }, [onRequestFloatFixings, activeFixingsIndex]);
-  const prevFixingsRef = React.useRef<Record<string, number>>({});
-
   const renderFixingsTable = React.useCallback(() => {
     if (!floatFixings) return null;
     if (floatFixings.loading) {
@@ -210,7 +209,7 @@ export function SwapModalShell({
     if (!columns.length) {
       return <div className="text-xs text-gray-500">No fixings available.</div>;
     }
-    const nextPrev: Record<string, number> = {};
+    const annotatedRows = annotateFixingsRows(rows, columns, prevFixingsRef);
     const table = (
       <div className="max-h-48 overflow-auto border border-gray-800 rounded-md bg-gray-950/80">
         <table className="w-full text-[11px] text-gray-200">
@@ -226,35 +225,13 @@ export function SwapModalShell({
               <tr key={idx} className="border-b border-gray-800">
                 {columns.map((col) => {
                   const rawVal = fixRow?.[col];
-                  const isTicker = TICKING_FIXING_COLUMNS.has(col.toLowerCase());
+                  const normalized = normalizeColumnKey(col);
+                  const isTicker = TICKING_FIXING_COLUMNS.has(normalized);
                   const displayVal = formatFlowValue(rawVal);
-                  let arrow = "";
-                  let color = "text-gray-200";
-                  let flash = "";
-                  if (isTicker) {
-                    const num = typeof rawVal === "number" ? rawVal : Number(rawVal);
-                    if (Number.isFinite(num)) {
-                      const key = `${idx}-${col.toLowerCase()}`;
-                      const prev = prevFixingsRef.current[key];
-                      let dir: "up" | "down" | "flat" = "flat";
-                      if (prev != null) {
-                        if (num > prev + 1e-10) dir = "up";
-                        else if (num < prev - 1e-10) dir = "down";
-                      }
-                      nextPrev[key] = num;
-                      if (dir === "up") {
-                        arrow = "▲";
-                        color = "text-green-400";
-                        flash = "flash-up";
-                      } else if (dir === "down") {
-                        arrow = "▼";
-                        color = "text-red-400";
-                        flash = "flash-down";
-                      } else {
-                        color = "text-gray-200";
-                      }
-                    }
-                  }
+                  const delta = annotatedRows[idx]?.__delta?.[col] ?? "flat";
+                  const arrow = delta === "up" ? "▲" : delta === "down" ? "▼" : "";
+                  const color = delta === "up" ? "text-green-400" : delta === "down" ? "text-red-400" : "text-gray-200";
+                  const flash = delta === "up" ? "flash-up" : delta === "down" ? "flash-down" : "";
                   return (
                     <td key={col} className={`px-2 py-1 whitespace-nowrap font-mono ${color} ${flash}`}>
                       {isTicker ? (
@@ -278,9 +255,8 @@ export function SwapModalShell({
         </table>
       </div>
     );
-    prevFixingsRef.current = nextPrev;
     return table;
-  }, [floatFixings]);
+  }, [floatFixings, prevFixingsRef]);
 
   return (
     <div className="space-y-4 text-sm text-gray-200">
@@ -535,7 +511,11 @@ function DataGridLike({ rows, cols }: { rows: any[]; cols: GridColDef<any>[] }) 
 
 const FIXED_VALUE_COLUMNS = new Set<string>(["npv", "discount factor"]);
 const FLOAT_VALUE_COLUMNS = new Set<string>(["npv", "discount factor", "rate", "cashflow"]);
-const TICKING_FIXING_COLUMNS = new Set<string>(["fixing", "hedging notional"]);
+const TICKING_FIXING_COLUMNS = new Set<string>(["fixing", "hedgingnotional"]);
+
+function normalizeColumnKey(col: string) {
+  return (col || "").toLowerCase().replace(/[\s_]/g, "");
+}
 
 function isHighlightedFlowColumn(col: string, targets: Set<string>) {
   if (!col) return false;
@@ -569,4 +549,50 @@ function annotateFlowRows(
   });
   prevRef.current = nextPrev;
   return rows;
+}
+
+function annotateFixingsRows(
+  rows: any[],
+  columns: string[],
+  prevRef: React.MutableRefObject<Record<string, number>>
+) {
+  const nextPrev: Record<string, number> = {};
+  const annotated = rows.map((row = {}, rowIdx) => {
+    const entry: Record<string, any> = { ...row, __delta: {} };
+    columns.forEach((col) => {
+      const normalized = normalizeColumnKey(col);
+      if (!TICKING_FIXING_COLUMNS.has(normalized)) return;
+      const val = row?.[col];
+      const num = coerceNumber(val);
+      if (num == null) return;
+      const key = `${rowIdx}-${normalized}`;
+      const prev = prevRef.current[key];
+      let dir: "up" | "down" | "flat" = "flat";
+      if (prev != null) {
+        if (num > prev + 1e-10) dir = "up";
+        else if (num < prev - 1e-10) dir = "down";
+      }
+      entry.__delta[col] = dir;
+      nextPrev[key] = num;
+    });
+    return entry;
+  });
+  prevRef.current = nextPrev;
+  return annotated;
+}
+
+function coerceNumber(val: any): number | null {
+  if (typeof val === "number") {
+    return Number.isFinite(val) ? val : null;
+  }
+  if (typeof val === "bigint") {
+    return Number(val);
+  }
+  if (typeof val === "string") {
+    const cleaned = val.replace(/[^0-9eE+.-]/g, "");
+    if (!cleaned) return null;
+    const num = Number(cleaned);
+    return Number.isFinite(num) ? num : null;
+  }
+  return null;
 }
