@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Scatter, ComposedChart, Bar, Cell } from "recharts";
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Scatter, ComposedChart, Bar, Cell, ReferenceArea } from "recharts";
 import { DataGrid, GridColDef, GridPaginationModel, GridSortModel, GridRenderEditCellParams, GridRenderCellParams } from "@mui/x-data-grid";
 import { Slider, TextField } from "@mui/material";
 import VerticalSplit from "@/components/VerticalSplit";
@@ -1358,18 +1358,46 @@ const renderRateEditCell = React.useCallback((params: GridRenderEditCellParams) 
   const cpArrow = cpDir === "up" ? "▲" : cpDir === "down" ? "▼" : "";
   const cpColor = cpDir === "up" ? "text-green-400" : cpDir === "down" ? "text-red-400" : "text-gray-200";
   const counterpartyRiskSeries = React.useMemo(() => buildRiskSeries(counterpartyRisk), [counterpartyRisk]);
+  const bucketPalette = React.useMemo(() => ({
+    day: "#60a5fa",
+    week: "#34d399",
+    month: "#fbbf24",
+    year: "#fb923c",
+    long: "#f472b6",
+    other: "#94a3b8",
+  }), []);
+  const bucketBandPalette = React.useMemo(() => ({
+    day: "rgba(96, 165, 250, 0.12)",
+    week: "rgba(52, 211, 153, 0.12)",
+    month: "rgba(251, 191, 36, 0.12)",
+    year: "rgba(251, 146, 60, 0.12)",
+    long: "rgba(244, 114, 182, 0.12)",
+    other: "rgba(148, 163, 184, 0.12)",
+  }), []);
   const counterpartyCfChart = React.useMemo(() => {
+    const bucketTypeForKey = (key: string, spanDays: number) => {
+      if (key.startsWith("day:")) return "day";
+      if (key.startsWith("week:")) return "week";
+      if (key.startsWith("month:")) return "month";
+      if (key.startsWith("year:")) return "year";
+      if (key.startsWith("5y:") || spanDays >= 365 * 5) return "long";
+      return "other";
+    };
     const rows = Array.isArray(counterpartyCfLive) ? counterpartyCfLive : [];
-    return rows.map((row: any) => {
+    return rows.map((row: any, idx: number) => {
       const startDays = Number(row.startDays ?? row.StartDays ?? 0) || 0;
       const spanDays = Math.max(1, Number(row.spanDays ?? row.SpanDays ?? 1) || 1);
       const midDays = startDays + spanDays / 2;
       const val = Number(row.TotalCashflow ?? row.cashflow ?? row.totalCashflow ?? 0);
+      const bucketKey = String(row.bucket ?? row.Bucket ?? row.label ?? row.startDate ?? row.PaymentDate ?? "");
+      const bucketType = bucketTypeForKey(bucketKey, spanDays);
       return {
         ...row,
+        bucketType,
         startDays,
         spanDays,
         midDays,
+        pos: idx,
         value: val,
         label: row.label ?? row.bucket ?? row.startDate ?? row.PaymentDate,
       };
@@ -1381,6 +1409,49 @@ const renderRateEditCell = React.useCallback((params: GridRenderEditCellParams) 
       return v > max ? v : max;
     }, 0);
   }, [counterpartyCfChart]);
+  const counterpartyCfAxis = React.useMemo(() => {
+    const rows = counterpartyCfChart;
+    if (!rows.length) return { ticks: [] as number[], format: (_v: number) => "", domain: [0, 1] as [number, number] };
+    const ticks = rows.map((row) => row.pos);
+    const labelMap = new Map<number, string>();
+    rows.forEach((row) => {
+      labelMap.set(row.pos, String(row.label ?? row.bucket ?? row.PaymentDate ?? ""));
+    });
+    const format = (v: number) => {
+      const key = Math.round(v);
+      return labelMap.get(key) ?? "";
+    };
+    return { ticks, format, domain: [-0.5, rows[rows.length - 1].pos + 0.5] as [number, number] };
+  }, [counterpartyCfChart]);
+  const counterpartyCfBands = React.useMemo(() => {
+    const rows = counterpartyCfChart;
+    const bands: Array<{ start: number; end: number; type: string; fill: string }> = [];
+    if (!rows.length) return bands;
+    let currentType = rows[0].bucketType || "other";
+    let start = rows[0].pos - 0.5;
+    let prevPos = rows[0].pos;
+    const pushBand = () => {
+      bands.push({
+        start,
+        end: prevPos + 0.5,
+        type: currentType,
+        fill: bucketBandPalette[currentType] || bucketBandPalette.other,
+      });
+    };
+    rows.forEach((row, idx) => {
+      const type = row.bucketType || "other";
+      if (type !== currentType) {
+        pushBand();
+        currentType = type;
+        start = row.pos - 0.5;
+      }
+      prevPos = row.pos;
+      if (idx === rows.length - 1) {
+        pushBand();
+      }
+    });
+    return bands;
+  }, [bucketBandPalette, counterpartyCfChart]);
   const counterpartySwapColumns = React.useMemo<GridColDef<BlotterRow>[]>(() => [
     {
       field: "ID",
@@ -1529,16 +1600,27 @@ const renderRateEditCell = React.useCallback((params: GridRenderEditCellParams) 
                             <ResponsiveContainer width="100%" height="100%">
                               <ComposedChart data={counterpartyCfChart} margin={{ top: 10, right: 16, bottom: 0, left: 0 }}>
                                 <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
+                                {counterpartyCfBands.map((band, idx) => (
+                                  <ReferenceArea
+                                    key={`${band.start}-${band.end}-${idx}`}
+                                    x1={band.start}
+                                    x2={band.end}
+                                    y1={cfMaxAbs ? -cfMaxAbs * 1.2 : -1}
+                                    y2={cfMaxAbs ? cfMaxAbs * 1.2 : 1}
+                                    fill={band.fill}
+                                    stroke="none"
+                                  />
+                                ))}
                                 <XAxis
                                   type="number"
-                                  dataKey="midDays"
-                                  tickFormatter={(v: number) => {
-                                    const match = counterpartyCfChart.find((row) => Math.abs(row.midDays - v) < 0.25);
-                                    return match?.label ?? "";
-                                  }}
-                                  ticks={counterpartyCfChart.map((row) => row.midDays)}
+                                  dataKey="pos"
+                                  domain={counterpartyCfAxis.domain}
+                                  tickFormatter={counterpartyCfAxis.format}
+                                  ticks={counterpartyCfAxis.ticks}
                                   interval={0}
-                                  height={48}
+                                  height={64}
+                                  tickMargin={10}
+                                  angle={-35}
                                   tick={{ fill: "#9ca3af", fontSize: 10 }}
                                   axisLine={{ stroke: "#374151" }}
                                   tickLine={{ stroke: "#374151" }}
@@ -1555,13 +1637,18 @@ const renderRateEditCell = React.useCallback((params: GridRenderEditCellParams) 
                                   contentStyle={{ background: "#0b1220", border: "1px solid #374151", color: "#e5e7eb" }}
                                   formatter={(value: any) => formatUsd(Number(value))}
                                   labelFormatter={(v: any) => {
-                                    const match = counterpartyCfChart.find((row) => Math.abs(row.midDays - Number(v)) < 0.25);
+                                    const match = counterpartyCfChart.find((row) => Math.abs(row.pos - Number(v)) < 0.25);
                                     return match?.label ?? String(v);
                                   }}
                                 />
                                 <Bar dataKey="value" radius={[4, 4, 0, 0]} isAnimationActive={false}>
                                   {counterpartyCfChart.map((entry, idx) => (
-                                    <Cell key={idx} fill={entry.value >= 0 ? "#f59e0b" : "#22d3ee"} />
+                                    <Cell
+                                      key={idx}
+                                      fill={bucketPalette[entry.bucketType] || bucketPalette.other}
+                                      stroke="#0f172a"
+                                      fillOpacity={entry.value >= 0 ? 0.95 : 0.45}
+                                    />
                                   ))}
                                 </Bar>
                               </ComposedChart>
