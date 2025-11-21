@@ -1309,8 +1309,8 @@ const renderRateEditCell = React.useCallback((params: GridRenderEditCellParams) 
       field: "StartDate",
       headerName: "Start date",
       width: 140,
-      valueFormatter: (p) => formatDateValue(p?.value),
-      renderCell: (p) => <span>{formatDateValue(p?.value)}</span>,
+      valueFormatter: (p: any) => formatDateValue(p?.value),
+      renderCell: (p: any) => <span>{formatDateValue(p?.value)}</span>,
     },
     {
       field: "TerminationDate",
