@@ -23,6 +23,7 @@ let pyodide: PyodideModule | null = null;
 let mdHelper: ((rows: PyProxy) => PyProxy) | null = null;
 let approxHelper: ((swaps: PyProxy, risk: PyProxy, md: PyProxy) => PyProxy) | null = null;
 let approxCounterpartyHelper: ((npv: number, risk: PyProxy, md: PyProxy) => any) | null = null;
+let approxCounterpartyCfHelper: ((cf: PyProxy, cfRisk: PyProxy, md: PyProxy) => PyProxy) | null = null;
 let setBaseCurveFn: ((rows: PyProxy) => void) | null = null;
 let initialized = false;
 let latestCurveRows: MarketRow[] | null = null;
@@ -30,7 +31,7 @@ let latestSwaps: SwapRow[] | null = null;
 let latestRisk: RiskRow[] | null = null;
 let latestMdChanges: MdChangeRow[] | null = null;
 let baseCurveRows: MarketRow[] | null = null;
-const counterpartyMap = new Map<string, { npv: number; risk: RiskRow | null }>();
+const counterpartyMap = new Map<string, { npv: number; risk: RiskRow | null; cashflows?: Record<string, any>[] | null; cashflowRisk?: Record<string, any>[] | null }>();
 
 async function init(baseUrl: string, datafeedUrl: string, approxUrl: string) {
   try {
@@ -56,7 +57,7 @@ async function init(baseUrl: string, datafeedUrl: string, approxUrl: string) {
       + `m_swap = types.ModuleType('py.swap_approximation'); m_swap.__package__='py'\n`
       + `exec(compile(${JSON.stringify(approxCode)}, 'py/swap_approximation.py', 'exec'), m_swap.__dict__)\n`
       + `sys.modules['py.swap_approximation'] = m_swap\n`
-      + `from py.swap_approximation import get_md_changes, aproximate_swap_quotes, aproximate_counterparty_npv\n`
+      + `from py.swap_approximation import get_md_changes, aproximate_swap_quotes, aproximate_counterparty_npv, aproximate_counterparty_cashflows\n`
       + `base_curve_df = None\n`
       + `def __set_base_curve(rows):\n`
       + `    global base_curve_df\n`
@@ -101,12 +102,20 @@ async function init(baseUrl: string, datafeedUrl: string, approxUrl: string) {
       + `    md_df = pd.DataFrame(md_changes_rows)\n`
       + `    if 'Term' in md_df.columns:\n`
       + `        md_df = md_df.set_index('Term')\n`
-      + `    return aproximate_counterparty_npv(float(npv_value), risk_df, md_df)\n`;
+      + `    return aproximate_counterparty_npv(float(npv_value), risk_df, md_df)\n`
+      + `def __approx_counterparty_cf(cf_rows, cf_risk_rows, md_changes_rows):\n`
+      + `    cf_df = pd.DataFrame(cf_rows)\n`
+      + `    cf_risk_df = pd.DataFrame(cf_risk_rows)\n`
+      + `    md_df = pd.DataFrame(md_changes_rows)\n`
+      + `    if 'Term' in md_df.columns:\n`
+      + `        md_df = md_df.set_index('Term')\n`
+      + `    return aproximate_counterparty_cashflows(cf_df, cf_risk_df, md_df).to_dict(orient='records')\n`;
 
     loaded.runPython(bootstrap);
     mdHelper = loaded.globals.get("__md_from_market") as typeof mdHelper;
     approxHelper = loaded.globals.get("__approx_swaps") as typeof approxHelper;
     approxCounterpartyHelper = loaded.globals.get("__approx_counterparty") as typeof approxCounterpartyHelper;
+    approxCounterpartyCfHelper = loaded.globals.get("__approx_counterparty_cf") as typeof approxCounterpartyCfHelper;
     setBaseCurveFn = loaded.globals.get("__set_base_curve") as typeof setBaseCurveFn;
 
     // Fetch base curve once from API to seed original market data.
@@ -182,7 +191,7 @@ function handleSwaps(swaps: SwapRow[], risk: RiskRow[]) {
   tryApproximate();
 }
 
-function handleCounterparty(payload: { id: string; npv: number; risk?: RiskRow | null; remove?: boolean }) {
+function handleCounterparty(payload: { id: string; npv: number; risk?: RiskRow | null; cashflows?: Record<string, any>[] | null; cashflowRisk?: Record<string, any>[] | null; remove?: boolean }) {
   if (!payload?.id) return;
   if (payload.remove) {
     counterpartyMap.delete(payload.id);
@@ -191,6 +200,8 @@ function handleCounterparty(payload: { id: string; npv: number; risk?: RiskRow |
   counterpartyMap.set(payload.id, {
     npv: Number(payload.npv ?? 0),
     risk: payload.risk || null,
+    cashflows: payload.cashflows || null,
+    cashflowRisk: payload.cashflowRisk || null,
   });
   tryApproximate();
 }
@@ -233,8 +244,12 @@ function approximateCounterparties() {
   try {
     mdPy = py.toPy(latestMdChanges);
     const results: Array<{ id: string; npv: number }> = [];
+    const cfResults: Array<{ id: string; rows: Record<string, any>[] }> = [];
     counterpartyMap.forEach((value, key) => {
       let riskPy: PyProxy | null = null;
+      let cfPy: PyProxy | null = null;
+      let cfRiskPy: PyProxy | null = null;
+      let cfRes: PyProxy | null = null;
       try {
         const riskRows = value.risk ? [{ ...value.risk }] : [];
         riskPy = py.toPy(riskRows);
@@ -246,14 +261,29 @@ function approximateCounterparties() {
         const res = helper(value.npv ?? 0, riskPy, mdPy);
         const npv = typeof res === "number" ? res : Number((res as any)?.toJs?.({ create_proxies: false }));
         results.push({ id: key, npv });
+
+        if (approxCounterpartyCfHelper && value.cashflows && value.cashflowRisk) {
+          cfPy = py.toPy(value.cashflows);
+          cfRiskPy = py.toPy(value.cashflowRisk);
+          cfRes = approxCounterpartyCfHelper(cfPy, cfRiskPy, mdPy);
+          const arr = cfRes?.toJs?.({ create_proxies: false }) as Record<string, any>[] | undefined;
+          const plain = arr ? (JSON.parse(JSON.stringify(arr)) as Record<string, any>[]) : [];
+          cfResults.push({ id: key, rows: plain });
+        }
       } catch (e) {
         ctx.postMessage({ type: "error", error: String(e) });
       } finally {
         if (riskPy && typeof riskPy.destroy === "function") riskPy.destroy();
+        if (cfPy && typeof cfPy.destroy === "function") cfPy.destroy();
+        if (cfRiskPy && typeof cfRiskPy.destroy === "function") cfRiskPy.destroy();
+        if (cfRes && typeof cfRes.destroy === "function") cfRes.destroy();
       }
     });
     if (results.length) {
       ctx.postMessage({ type: "counterpartyApprox", rows: results });
+    }
+    if (cfResults.length) {
+      ctx.postMessage({ type: "counterpartyCfApprox", rows: cfResults });
     }
   } catch (e) {
     ctx.postMessage({ type: "error", error: String(e) });

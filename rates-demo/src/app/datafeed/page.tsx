@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Scatter } from "recharts";
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Scatter, ComposedChart, Bar, Cell } from "recharts";
 import { DataGrid, GridColDef, GridPaginationModel, GridSortModel, GridRenderEditCellParams, GridRenderCellParams } from "@mui/x-data-grid";
 import { Slider, TextField } from "@mui/material";
 import VerticalSplit from "@/components/VerticalSplit";
@@ -145,6 +145,10 @@ function DatafeedPageInner() {
   const [counterpartySwapsLoading, setCounterpartySwapsLoading] = React.useState(false);
   const [counterpartyPagination, setCounterpartyPagination] = React.useState<GridPaginationModel>({ page: 0, pageSize: 10 });
   const [counterpartySort, setCounterpartySort] = React.useState<GridSortModel>([{ field: (generatedIdField as string) || "ID", sort: "asc" }]);
+  const [counterpartyCfBase, setCounterpartyCfBase] = React.useState<any[]>([]);
+  const [counterpartyCfLive, setCounterpartyCfLive] = React.useState<any[]>([]);
+  const counterpartyCfBaseRef = React.useRef<any[]>([]);
+  const counterpartyCfRiskRef = React.useRef<any[]>([]);
   const detailsRef = React.useRef<Worker | null>(null);
   const [detailsReady, setDetailsReady] = React.useState(false);
   const [modalRisk, setModalRisk] = React.useState<any | null>(null);
@@ -188,6 +192,10 @@ function DatafeedPageInner() {
       setCounterpartyLoading(false);
       setCounterpartySwaps([]);
       setCounterpartySwapCount(0);
+      setCounterpartyCfBase([]);
+      setCounterpartyCfLive([]);
+      counterpartyCfBaseRef.current = [];
+      counterpartyCfRiskRef.current = [];
       return;
     }
     setCounterpartyTab("cashflows");
@@ -197,24 +205,50 @@ function DatafeedPageInner() {
     const params = new URLSearchParams({ id: counterpartyId, rowType: "Counterparty" });
     const load = async () => {
       try {
-        const [mainRes, riskRes] = await Promise.all([
+        const [mainRes, riskRes, cfRes] = await Promise.all([
           fetch(`/api/main-agg?${params.toString()}`, { cache: "no-store" }),
           fetch(`/api/risk-agg?${params.toString()}`, { cache: "no-store" }),
+          fetch(`/api/counterparty-cashflows?counterpartyId=${encodeURIComponent(counterpartyId)}`, { cache: "no-store" }),
         ]);
         if (!mainRes.ok) throw new Error(`main agg fetch failed: ${mainRes.status}`);
         if (!riskRes.ok) throw new Error(`risk agg fetch failed: ${riskRes.status}`);
-        const [mainJson, riskJson] = await Promise.all([mainRes.json(), riskRes.json()]);
+        if (!cfRes.ok) throw new Error(`cashflow fetch failed: ${cfRes.status}`);
+        const [mainJson, riskJson, cfJson] = await Promise.all([mainRes.json(), riskRes.json(), cfRes.json()]);
         if (cancelled) return;
         const mainRow = coerceRecord(mainJson?.row);
         const riskRow = coerceRecord(riskJson?.row);
+        const buckets = Array.isArray(cfJson?.buckets) ? cfJson.buckets : [];
         setCounterpartyRow(mainRow);
         setCounterpartyRisk(riskRow);
         setCounterpartyLiveNpv(mainRow?.NPV == null ? null : Number(mainRow.NPV));
+        const cfEnriched = buckets.map((b: any) => ({
+          ...b,
+          baseCashflow: b?.cashflow == null ? 0 : Number(b.cashflow),
+          TotalCashflow: b?.cashflow == null ? 0 : Number(b.cashflow),
+          TotalWeight: b?.weight == null ? 0 : Number(b.weight),
+          PaymentDate: b?.startDate,
+        }));
+        const riskRows = buckets.map((b: any) => {
+          const risk = b?.risk && typeof b.risk === "object" ? b.risk : {};
+          return {
+            bucket: b?.bucket,
+            PaymentDate: b?.startDate,
+            ...risk,
+          };
+        });
+        setCounterpartyCfBase(cfEnriched);
+        setCounterpartyCfLive(cfEnriched);
+        counterpartyCfBaseRef.current = cfEnriched;
+        counterpartyCfRiskRef.current = riskRows;
       } catch (err) {
         if (!cancelled) {
           setCounterpartyRow(null);
           setCounterpartyRisk(null);
           setCounterpartyLiveNpv(null);
+          setCounterpartyCfBase([]);
+          setCounterpartyCfLive([]);
+          counterpartyCfBaseRef.current = [];
+          counterpartyCfRiskRef.current = [];
         }
         console.error("[counterparty] fetch", err);
       } finally {
@@ -276,8 +310,10 @@ function DatafeedPageInner() {
       id: counterpartyApproxKey,
       npv: npvVal,
       risk: counterpartyRisk ? { ...counterpartyRisk, ID: counterpartyApproxKey } : null,
+      cashflows: counterpartyCfBaseRef.current,
+      cashflowRisk: counterpartyCfRiskRef.current,
     });
-  }, [approxReady, counterpartyApproxKey, counterpartyRow, counterpartyRisk]);
+  }, [approxReady, counterpartyApproxKey, counterpartyRow, counterpartyRisk, counterpartyCfBase]);
 
   React.useEffect(() => {
     if (counterpartyTab !== "swaps") return;
@@ -489,6 +525,35 @@ function DatafeedPageInner() {
         if (match && typeof match.npv === "number") {
           setCounterpartyLiveNpv(Number(match.npv));
         }
+      } else if (msg.type === "counterpartyCfApprox") {
+        const cpKey = counterpartyApproxIdRef.current;
+        if (!cpKey) return;
+        const rows = Array.isArray(msg.rows) ? msg.rows : [];
+        const match = rows.find((row: any) => String(row?.id ?? row?.ID) === cpKey);
+        const cfRows = Array.isArray(match?.rows) ? match.rows : [];
+        if (!cfRows.length) return;
+        setCounterpartyCfLive((prev) => {
+          const base = counterpartyCfBaseRef.current.length ? counterpartyCfBaseRef.current : prev;
+          const map = new Map<string, any>();
+          base.forEach((row: any) => {
+            const key = String(row.bucket ?? row.Bucket ?? row.label ?? row.startDate);
+            map.set(key, { ...row });
+          });
+          cfRows.forEach((row: any) => {
+            const key = String(row.bucket ?? row.Bucket ?? row.label ?? row.startDate ?? "");
+            if (!key) return;
+            const nextVal = row.TotalCashflow ?? row.cashflow ?? row.totalCashflow;
+            const existing = map.get(key);
+            if (existing) {
+              map.set(key, {
+                ...existing,
+                TotalCashflow: nextVal == null ? existing.TotalCashflow : Number(nextVal),
+                cashflow: nextVal == null ? existing.cashflow : Number(nextVal),
+              });
+            }
+          });
+          return Array.from(map.values()).sort((a, b) => (Number(a.startDays) || 0) - (Number(b.startDays) || 0));
+        });
       } else if (msg.type === "error") {
         console.error("[approx worker] error", msg.error);
         setApproxFatal(String(msg.error ?? "Unknown error"));
@@ -1293,6 +1358,29 @@ const renderRateEditCell = React.useCallback((params: GridRenderEditCellParams) 
   const cpArrow = cpDir === "up" ? "▲" : cpDir === "down" ? "▼" : "";
   const cpColor = cpDir === "up" ? "text-green-400" : cpDir === "down" ? "text-red-400" : "text-gray-200";
   const counterpartyRiskSeries = React.useMemo(() => buildRiskSeries(counterpartyRisk), [counterpartyRisk]);
+  const counterpartyCfChart = React.useMemo(() => {
+    const rows = Array.isArray(counterpartyCfLive) ? counterpartyCfLive : [];
+    return rows.map((row: any) => {
+      const startDays = Number(row.startDays ?? row.StartDays ?? 0) || 0;
+      const spanDays = Math.max(1, Number(row.spanDays ?? row.SpanDays ?? 1) || 1);
+      const midDays = startDays + spanDays / 2;
+      const val = Number(row.TotalCashflow ?? row.cashflow ?? row.totalCashflow ?? 0);
+      return {
+        ...row,
+        startDays,
+        spanDays,
+        midDays,
+        value: val,
+        label: row.label ?? row.bucket ?? row.startDate ?? row.PaymentDate,
+      };
+    });
+  }, [counterpartyCfLive]);
+  const cfMaxAbs = React.useMemo(() => {
+    return counterpartyCfChart.reduce((max, row) => {
+      const v = Math.abs(Number(row.value ?? 0));
+      return v > max ? v : max;
+    }, 0);
+  }, [counterpartyCfChart]);
   const counterpartySwapColumns = React.useMemo<GridColDef<BlotterRow>[]>(() => [
     {
       field: "ID",
@@ -1434,8 +1522,54 @@ const renderRateEditCell = React.useCallback((params: GridRenderEditCellParams) 
                   </div>
                   <div className="border border-gray-800 rounded-md bg-gray-900 p-3 h-[360px] flex flex-col gap-3">
                     {counterpartyTab === "cashflows" ? (
-                      <div className="flex-1 border border-dashed border-gray-700 rounded-md bg-gray-950 flex items-center justify-center text-gray-500">
-                        Cashflows content coming soon.
+                      <div className="flex-1 min-h-0 flex flex-col gap-2">
+                        <div className="text-xs uppercase tracking-wide text-gray-500">Expected cashflows</div>
+                        <div className="flex-1 min-h-0 rounded-md border border-gray-800 bg-gray-950/60 p-3">
+                          {counterpartyCfChart.length ? (
+                            <ResponsiveContainer width="100%" height="100%">
+                              <ComposedChart data={counterpartyCfChart} margin={{ top: 10, right: 16, bottom: 0, left: 0 }}>
+                                <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
+                                <XAxis
+                                  type="number"
+                                  dataKey="midDays"
+                                  tickFormatter={(v: number) => {
+                                    const match = counterpartyCfChart.find((row) => Math.abs(row.midDays - v) < 0.25);
+                                    return match?.label ?? "";
+                                  }}
+                                  ticks={counterpartyCfChart.map((row) => row.midDays)}
+                                  interval={0}
+                                  height={48}
+                                  tick={{ fill: "#9ca3af", fontSize: 10 }}
+                                  axisLine={{ stroke: "#374151" }}
+                                  tickLine={{ stroke: "#374151" }}
+                                />
+                                <YAxis
+                                  tick={{ fill: "#9ca3af", fontSize: 11 }}
+                                  axisLine={{ stroke: "#374151" }}
+                                  tickLine={{ stroke: "#374151" }}
+                                  tickFormatter={(v: number) => formatUsd(v).replace("$ ", "")}
+                                  domain={[cfMaxAbs ? -cfMaxAbs * 1.2 : -1, cfMaxAbs ? cfMaxAbs * 1.2 : 1]}
+                                />
+                                <Tooltip
+                                  cursor={{ fill: "#111827", fillOpacity: 0.1 }}
+                                  contentStyle={{ background: "#0b1220", border: "1px solid #374151", color: "#e5e7eb" }}
+                                  formatter={(value: any) => formatUsd(Number(value))}
+                                  labelFormatter={(v: any) => {
+                                    const match = counterpartyCfChart.find((row) => Math.abs(row.midDays - Number(v)) < 0.25);
+                                    return match?.label ?? String(v);
+                                  }}
+                                />
+                                <Bar dataKey="value" radius={[4, 4, 0, 0]} isAnimationActive={false}>
+                                  {counterpartyCfChart.map((entry, idx) => (
+                                    <Cell key={idx} fill={entry.value >= 0 ? "#f59e0b" : "#22d3ee"} />
+                                  ))}
+                                </Bar>
+                              </ComposedChart>
+                            </ResponsiveContainer>
+                          ) : (
+                            <div className="h-full flex items-center justify-center text-gray-500 text-sm">No cashflows available.</div>
+                          )}
+                        </div>
                       </div>
                     ) : counterpartyTab === "swaps" ? (
                       <>
