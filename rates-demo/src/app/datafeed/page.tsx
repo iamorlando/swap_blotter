@@ -137,6 +137,7 @@ function DatafeedPageInner() {
   const [counterpartyRisk, setCounterpartyRisk] = React.useState<Record<string, any> | null>(null);
   const [counterpartyLiveNpv, setCounterpartyLiveNpv] = React.useState<number | null>(null);
   const [counterpartyLoading, setCounterpartyLoading] = React.useState(false);
+  const [counterpartyTab, setCounterpartyTab] = React.useState<"cashflows" | "swaps">("cashflows");
   const detailsRef = React.useRef<Worker | null>(null);
   const [detailsReady, setDetailsReady] = React.useState(false);
   const [modalRisk, setModalRisk] = React.useState<any | null>(null);
@@ -154,15 +155,6 @@ function DatafeedPageInner() {
     if (val == null || Number.isNaN(val)) return "—";
     return usdFormatter.format(val).replace("$", "$ ");
   }, [usdFormatter]);
-  const formatDateValue = React.useCallback((value: any) => {
-    if (!value) return "—";
-    const d = new Date(value);
-    if (Number.isNaN(d.getTime())) return "—";
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, "0");
-    const day = String(d.getDate()).padStart(2, "0");
-    return `${y}-${m}-${day}`;
-  }, []);
   React.useEffect(() => {
     swapSnapshotRef.current = modalSwapRow ?? swapSnapshot;
   }, [modalSwapRow, swapSnapshot]);
@@ -1265,22 +1257,28 @@ const renderRateEditCell = React.useCallback((params: GridRenderEditCellParams) 
               ) : counterpartyRow ? (
                 <div className="space-y-4 text-sm text-gray-200">
                   <div className="space-y-1">
-                    <div className="text-xs uppercase tracking-wide text-gray-500">Live NPV</div>
+                    <div className="text-xs uppercase tracking-wide text-gray-500">Exposure</div>
                     <div className={`flex items-center gap-2 font-mono text-base ${cpColor}`}>
                       {cpArrow && <span>{cpArrow}</span>}
                       <span>{formatUsd(counterpartyLiveValue)}</span>
                     </div>
-                    <div className="text-xs text-gray-500">Base NPV: {formatUsd(counterpartyBaseNpv)}</div>
                   </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <div className="text-[11px] uppercase tracking-wide text-gray-500">Notional</div>
-                      <div className="font-mono">{formatUsd(counterpartyRow.Notional == null ? null : Number(counterpartyRow.Notional))}</div>
-                    </div>
-                    <div>
-                      <div className="text-[11px] uppercase tracking-wide text-gray-500">Pricing time</div>
-                      <div className="font-mono">{formatDateValue(counterpartyRow.PricingTime)}</div>
-                    </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setCounterpartyTab("cashflows")}
+                      className={`px-3 py-1.5 text-sm rounded-md border ${counterpartyTab === "cashflows" ? "border-amber-400 text-amber-200 bg-gray-800" : "border-gray-800 text-gray-400 hover:text-gray-200"}`}
+                    >
+                      Cashflows
+                    </button>
+                    <button
+                      onClick={() => setCounterpartyTab("swaps")}
+                      className={`px-3 py-1.5 text-sm rounded-md border ${counterpartyTab === "swaps" ? "border-amber-400 text-amber-200 bg-gray-800" : "border-gray-800 text-gray-400 hover:text-gray-200"}`}
+                    >
+                      Swaps
+                    </button>
+                  </div>
+                  <div className="min-h-[200px] border border-gray-800 rounded-md bg-gray-900 flex items-center justify-center text-gray-500">
+                    {counterpartyTab === "cashflows" ? "Cashflows content coming soon." : "Swaps content coming soon."}
                   </div>
                   <div>
                     <button onClick={closeCounterparty} className="px-3 py-1.5 rounded-md border border-gray-700 bg-gray-900 text-gray-300 hover:bg-gray-800">
