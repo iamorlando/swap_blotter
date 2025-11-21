@@ -3,13 +3,14 @@
 import * as React from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Scatter } from "recharts";
-import { DataGrid, GridColDef, GridPaginationModel, GridSortModel, GridRenderEditCellParams } from "@mui/x-data-grid";
+import { DataGrid, GridColDef, GridPaginationModel, GridSortModel, GridRenderEditCellParams, GridRenderCellParams } from "@mui/x-data-grid";
 import { Slider, TextField } from "@mui/material";
 import VerticalSplit from "@/components/VerticalSplit";
 import HorizontalSplit from "@/components/HorizontalSplit";
 import { columnsMeta as generatedColumns, idField as generatedIdField } from "@/generated/blotterColumns";
 import Modal from "@/components/Modal";
 import { SwapModalShell } from "@/components/SwapModalShell";
+import { CopyTableButton, tableToTsv } from "@/components/TableExportControls";
 
 let sharedDatafeedWorker: Worker | null = null;
 let datafeedInitialized = false;
@@ -29,6 +30,44 @@ type DragState = {
   baseCurve: Array<{ Term: string; Rate: number }>;
   targetIndex?: number;
 };
+
+function coerceRecord(row: Record<string, any> | null | undefined) {
+  if (!row) return null;
+  const out: Record<string, any> = {};
+  Object.entries(row).forEach(([key, value]) => {
+    out[key] = typeof value === "bigint" ? Number(value) : value;
+  });
+  return out;
+}
+
+const gridBaseSx = {
+  color: "var(--grid-text-color)",
+  border: 0,
+  "& .MuiDataGrid-columnHeaders": {
+    backgroundColor: "var(--grid-header-bg)",
+    color: "var(--grid-text-color)",
+  },
+  "& .MuiDataGrid-columnHeaderTitle": { fontWeight: 600 },
+  "& .MuiDataGrid-row": {
+    backgroundColor: "var(--grid-row-bg)",
+  },
+  "& .MuiDataGrid-cell": {
+    borderColor: "var(--grid-border-color)",
+    color: "var(--grid-text-color)",
+  },
+  "& .MuiDataGrid-columnSeparator": {
+    color: "var(--grid-border-color)",
+  },
+  "& .MuiDataGrid-row.Mui-hovered": {
+    backgroundColor: "var(--grid-hover-bg) !important",
+  },
+  "& .MuiDataGrid-row.Mui-selected": {
+    backgroundColor: "var(--grid-hover-bg) !important",
+  },
+  "& .MuiDataGrid-cell:focus, & .MuiDataGrid-cell:focus-within": {
+    outline: "none",
+  },
+} as const;
 
 const RateEditCellComponent = React.memo(function RateEditCellComponent(params: GridRenderEditCellParams) {
   const { api, id, field, value } = params;
@@ -62,7 +101,7 @@ const RateEditCellComponent = React.memo(function RateEditCellComponent(params: 
       value={raw}
       onChange={onChange}
       variant="standard"
-      inputProps={{ style: { color: "#e5e7eb" } }}
+      inputProps={{ style: { color: "var(--grid-text-color)" } }}
       sx={{ width: "100%" }}
     />
   );
@@ -73,9 +112,16 @@ function DatafeedPageInner() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const swapId = searchParams.get("swap");
+  const counterpartyId = searchParams.get("counterparty");
   const closeSwap = React.useCallback(() => {
     const sp = new URLSearchParams(searchParams?.toString() || "");
     sp.delete("swap");
+    const qs = sp.toString();
+    router.replace(qs ? `${pathname}?${qs}` : `${pathname}`, { scroll: false });
+  }, [router, pathname, searchParams]);
+  const closeCounterparty = React.useCallback(() => {
+    const sp = new URLSearchParams(searchParams?.toString() || "");
+    sp.delete("counterparty");
     const qs = sp.toString();
     router.replace(qs ? `${pathname}?${qs}` : `${pathname}`, { scroll: false });
   }, [router, pathname, searchParams]);
@@ -87,6 +133,16 @@ function DatafeedPageInner() {
   const [approxOverrides, setApproxOverrides] = React.useState<Record<string, any>>({});
   const [swapSnapshot, setSwapSnapshot] = React.useState<BlotterRow | null>(null);
   const [modalSwapRow, setModalSwapRow] = React.useState<BlotterRow | null>(null);
+  const [counterpartyRow, setCounterpartyRow] = React.useState<Record<string, any> | null>(null);
+  const [counterpartyRisk, setCounterpartyRisk] = React.useState<Record<string, any> | null>(null);
+  const [counterpartyLiveNpv, setCounterpartyLiveNpv] = React.useState<number | null>(null);
+  const [counterpartyLoading, setCounterpartyLoading] = React.useState(false);
+  const [counterpartyTab, setCounterpartyTab] = React.useState<"cashflows" | "swaps">("cashflows");
+  const [counterpartySwaps, setCounterpartySwaps] = React.useState<BlotterRow[]>([]);
+  const [counterpartySwapCount, setCounterpartySwapCount] = React.useState(0);
+  const [counterpartySwapsLoading, setCounterpartySwapsLoading] = React.useState(false);
+  const [counterpartyPagination, setCounterpartyPagination] = React.useState<GridPaginationModel>({ page: 0, pageSize: 10 });
+  const [counterpartySort, setCounterpartySort] = React.useState<GridSortModel>([{ field: (generatedIdField as string) || "ID", sort: "asc" }]);
   const detailsRef = React.useRef<Worker | null>(null);
   const [detailsReady, setDetailsReady] = React.useState(false);
   const [modalRisk, setModalRisk] = React.useState<any | null>(null);
@@ -95,10 +151,136 @@ function DatafeedPageInner() {
   const [modalApprox, setModalApprox] = React.useState<any>(null);
   const [modalFixedFlows, setModalFixedFlows] = React.useState<any[]>([]);
   const [modalFloatFlows, setModalFloatFlows] = React.useState<any[]>([]);
-  const [modalFloatFixings, setModalFloatFixings] = React.useState<{ index: number | null; columns: string[]; rows: any[]; loading?: boolean } | null>(null);
+  const [modalFloatFixings, setModalFloatFixings] = React.useState<{ index: number | null; columns: string[]; rows: any[]; cashflow?: Record<string, any> | null; loading?: boolean } | null>(null);
+  const floatFixingsIndexRef = React.useRef<number | null>(null);
+  const counterpartyApproxIdRef = React.useRef<string | null>(null);
+  const counterpartyApproxKey = React.useMemo(() => (counterpartyId ? `counterparty:${counterpartyId}` : null), [counterpartyId]);
+  const usdFormatter = React.useMemo(() => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 }), []);
+  const formatUsd = React.useCallback((val: number | null | undefined) => {
+    if (val == null || Number.isNaN(val)) return "—";
+    return usdFormatter.format(val).replace("$", "$ ");
+  }, [usdFormatter]);
+  const formatDateValue = React.useCallback((value: any) => {
+    if (!value) return "—";
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return "—";
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  }, []);
   React.useEffect(() => {
     swapSnapshotRef.current = modalSwapRow ?? swapSnapshot;
   }, [modalSwapRow, swapSnapshot]);
+  React.useEffect(() => {
+    floatFixingsIndexRef.current = modalFloatFixings?.index ?? null;
+  }, [modalFloatFixings?.index]);
+  React.useEffect(() => {
+    counterpartyApproxIdRef.current = counterpartyApproxKey;
+  }, [counterpartyApproxKey]);
+  React.useEffect(() => {
+    if (!counterpartyId) {
+      setCounterpartyRow(null);
+      setCounterpartyRisk(null);
+      setCounterpartyLiveNpv(null);
+      setCounterpartyLoading(false);
+      setCounterpartySwaps([]);
+      setCounterpartySwapCount(0);
+      return;
+    }
+    setCounterpartyTab("cashflows");
+    setCounterpartyPagination({ page: 0, pageSize: 10 });
+    let cancelled = false;
+    setCounterpartyLoading(true);
+    const params = new URLSearchParams({ id: counterpartyId, rowType: "Counterparty" });
+    const load = async () => {
+      try {
+        const [mainRes, riskRes] = await Promise.all([
+          fetch(`/api/main-agg?${params.toString()}`, { cache: "no-store" }),
+          fetch(`/api/risk-agg?${params.toString()}`, { cache: "no-store" }),
+        ]);
+        if (!mainRes.ok) throw new Error(`main agg fetch failed: ${mainRes.status}`);
+        if (!riskRes.ok) throw new Error(`risk agg fetch failed: ${riskRes.status}`);
+        const [mainJson, riskJson] = await Promise.all([mainRes.json(), riskRes.json()]);
+        if (cancelled) return;
+        const mainRow = coerceRecord(mainJson?.row);
+        const riskRow = coerceRecord(riskJson?.row);
+        setCounterpartyRow(mainRow);
+        setCounterpartyRisk(riskRow);
+        setCounterpartyLiveNpv(mainRow?.NPV == null ? null : Number(mainRow.NPV));
+      } catch (err) {
+        if (!cancelled) {
+          setCounterpartyRow(null);
+          setCounterpartyRisk(null);
+          setCounterpartyLiveNpv(null);
+        }
+        console.error("[counterparty] fetch", err);
+      } finally {
+        if (!cancelled) setCounterpartyLoading(false);
+      }
+    };
+    load();
+    return () => { cancelled = true; };
+  }, [counterpartyId, setCounterpartyTab]);
+
+  const fetchCounterpartySwaps = React.useCallback(async () => {
+    if (!counterpartyId) {
+      setCounterpartySwaps([]);
+      setCounterpartySwapCount(0);
+      return;
+    }
+    setCounterpartySwapsLoading(true);
+    try {
+      const sortField = (counterpartySort[0]?.field ?? (generatedIdField as string)) || "ID";
+      const sortOrder = (counterpartySort[0]?.sort ?? "asc") as "asc" | "desc";
+      const url = `/api/swaps?counterpartyId=${encodeURIComponent(counterpartyId)}&page=${counterpartyPagination.page}&pageSize=${counterpartyPagination.pageSize}&sortField=${sortField}&sortOrder=${sortOrder}`;
+      const res = await fetch(url);
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(`counterparty swaps fetch failed: ${res.status} ${text}`);
+      }
+      const data = await res.json();
+      const rawRows: BlotterRow[] = data.rows || [];
+      const shaped = rawRows.map((r, idx) => {
+        const idVal = (r as any).id ?? (r as any).ID ?? idx;
+        const notional = (r as any).Notional;
+        return { ...r, id: idVal, Notional: notional == null ? null : Number(notional) };
+      });
+      setCounterpartySwaps(shaped);
+      setCounterpartySwapCount(data.total || shaped.length);
+    } catch (err) {
+      console.error("[counterparty] swaps fetch", err);
+    } finally {
+      setCounterpartySwapsLoading(false);
+    }
+  }, [counterpartyId, counterpartyPagination.page, counterpartyPagination.pageSize, counterpartySort]);
+
+  const prevCounterpartyRef = React.useRef<string | null>(null);
+  React.useEffect(() => {
+    const prev = prevCounterpartyRef.current;
+    if (prev && prev !== counterpartyApproxKey) {
+      approxRef.current?.postMessage({ type: "counterparty", id: prev, remove: true });
+    }
+    prevCounterpartyRef.current = counterpartyApproxKey;
+  }, [counterpartyApproxKey]);
+
+  React.useEffect(() => {
+    if (!approxReady) return;
+    if (!counterpartyApproxKey) return;
+    if (!counterpartyRow) return;
+    const npvVal = counterpartyRow.NPV == null ? 0 : Number(counterpartyRow.NPV);
+    approxRef.current?.postMessage({
+      type: "counterparty",
+      id: counterpartyApproxKey,
+      npv: npvVal,
+      risk: counterpartyRisk ? { ...counterpartyRisk, ID: counterpartyApproxKey } : null,
+    });
+  }, [approxReady, counterpartyApproxKey, counterpartyRow, counterpartyRisk]);
+
+  React.useEffect(() => {
+    if (counterpartyTab !== "swaps") return;
+    fetchCounterpartySwaps();
+  }, [counterpartyTab, fetchCounterpartySwaps]);
   const handleOpenSwap = React.useCallback((row: BlotterRow) => {
     setSwapSnapshot(row);
     setModalSwapRow(row);
@@ -152,6 +334,7 @@ function DatafeedPageInner() {
   // Show frosted overlays until each section has first data
   const [showMarketOverlay, setShowMarketOverlay] = React.useState(true);
   const [showCalibOverlay, setShowCalibOverlay] = React.useState(true);
+  const [termsheetLoading, setTermsheetLoading] = React.useState(false);
   const normalizeRateInput = React.useCallback((val: any, fallback: number) => {
     const num = Number(val);
     if (!Number.isFinite(num)) return fallback;
@@ -209,6 +392,15 @@ function DatafeedPageInner() {
         pushApproxMarket(curveRows);
         if (swapIdRef.current && detailsRef.current) {
           detailsRef.current.postMessage({ type: "fixedFlows", market: curveRows, swapId: swapIdRef.current });
+          const activeFixIdx = floatFixingsIndexRef.current;
+          if (activeFixIdx != null) {
+            detailsRef.current.postMessage({
+              type: "floatFixings",
+              market: curveRows,
+              swapId: swapIdRef.current,
+              index: activeFixIdx,
+            });
+          }
         }
         if (showMarketOverlay) setShowMarketOverlay(false);
         if (msg.movedTerm) {
@@ -287,6 +479,14 @@ function DatafeedPageInner() {
         if (activeSwap && map[String(activeSwap)]) {
           setModalApprox(map[String(activeSwap)]);
         }
+      } else if (msg.type === "counterpartyApprox") {
+        const rows = Array.isArray(msg.rows) ? msg.rows : [];
+        const cpKey = counterpartyApproxIdRef.current;
+        if (!cpKey) return;
+        const match = rows.find((row: any) => String(row?.id ?? row?.ID) === cpKey);
+        if (match && typeof match.npv === "number") {
+          setCounterpartyLiveNpv(Number(match.npv));
+        }
       } else if (msg.type === "error") {
         console.error("[approx worker] error", msg.error);
         setApproxFatal(String(msg.error ?? "Unknown error"));
@@ -334,6 +534,7 @@ function DatafeedPageInner() {
       setModalFloatFlows([]);
       setModalFloatFixings(null);
       setModalSwapRow(null);
+      setTermsheetLoading(false);
       return;
     }
     const existing = approxOverrides[activeSwapId];
@@ -417,6 +618,19 @@ function DatafeedPageInner() {
     approxRef.current.postMessage({ type: "swaps", swaps, risk });
   }, []);
 
+  const openTermsheetHtml = React.useCallback((html: string) => {
+    if (!html) return;
+    try {
+      const blob = new Blob([html], { type: "text/html" });
+      const url = URL.createObjectURL(blob);
+      window.open(url, "_blank", "noopener");
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch (err) {
+      console.error("termsheet html", err);
+      alert("Unable to open termsheet.");
+    }
+  }, []);
+
   React.useEffect(() => {
     if (!sharedDetailsWorker) {
       sharedDetailsWorker = new Worker(new URL("../../workers/swapDetails.worker.ts", import.meta.url), { type: "module" });
@@ -453,8 +667,13 @@ function DatafeedPageInner() {
           index: typeof msg.index === "number" ? msg.index : null,
           columns: Array.isArray(msg.columns) ? msg.columns : [],
           rows: Array.isArray(msg.rows) ? msg.rows : [],
+          cashflow: msg.cashflow && typeof msg.cashflow === "object" ? msg.cashflow as Record<string, any> : null,
           loading: false,
         });
+      } else if (msg.type === "termsheet") {
+        if (msg.swapId && msg.swapId !== swapIdRef.current) return;
+        setTermsheetLoading(false);
+        if (msg.html) openTermsheetHtml(String(msg.html));
       } else if (msg.type === "error") {
         console.error("[swap details worker] error", msg.error);
       }
@@ -469,7 +688,7 @@ function DatafeedPageInner() {
       w.removeEventListener("message", onMessage);
       detailsRef.current = null;
     };
-  }, [applyModalSwapUpdate]);
+  }, [applyModalSwapUpdate, openTermsheetHtml]);
 
   const clearApproximation = React.useCallback(() => {
     setApproxOverrides({});
@@ -480,15 +699,25 @@ function DatafeedPageInner() {
     [data]
   );
 
+
   const requestFloatFixings = React.useCallback((rowIndex: number | null) => {
     if (!detailsRef.current) return;
     if (!swapIdRef.current) return;
     if (rowIndex == null) {
       setModalFloatFixings(null);
+      floatFixingsIndexRef.current = null;
       return;
     }
-    setModalFloatFixings({ index: rowIndex, columns: [], rows: [], loading: true });
-    detailsRef.current.postMessage({ type: "floatFixings", swapId: swapIdRef.current, index: rowIndex });
+    const marketRows = Array.isArray(data) && data.length ? data : null;
+    setModalFloatFixings({ index: rowIndex, columns: [], rows: [], cashflow: null, loading: true });
+    floatFixingsIndexRef.current = rowIndex;
+    detailsRef.current.postMessage({ type: "floatFixings", swapId: swapIdRef.current, index: rowIndex, market: marketRows });
+  }, [data]);
+
+  const requestTermsheet = React.useCallback(() => {
+    if (!detailsRef.current || !swapIdRef.current) return;
+    setTermsheetLoading(true);
+    detailsRef.current.postMessage({ type: "termsheet", swapId: swapIdRef.current });
   }, []);
 const renderRateEditCell = React.useCallback((params: GridRenderEditCellParams) => {
     return <RateEditCellComponent {...params} />;
@@ -861,13 +1090,9 @@ const renderRateEditCell = React.useCallback((params: GridRenderEditCellParams) 
           }
         }}
         sx={{
-          color: "#e5e7eb",
-          border: 0,
-          "& .MuiDataGrid-columnHeaders": { backgroundColor: "#0b1220" },
-          "& .MuiDataGrid-row": { backgroundColor: "#111827" },
-          "& .MuiDataGrid-cell": { borderColor: "#1f2937" },
-          "& .editable-cell": { backgroundColor: "#0b1220" },
-          "& .MuiDataGrid-cell--editing": { backgroundColor: "#111827" },
+          ...gridBaseSx,
+          "& .editable-cell": { backgroundColor: "var(--grid-editable-bg)" },
+          "& .MuiDataGrid-cell--editing": { backgroundColor: "var(--grid-editing-bg)" },
         }}
       />
         </div>
@@ -1059,6 +1284,103 @@ const renderRateEditCell = React.useCallback((params: GridRenderEditCellParams) 
     </div>
   );
 
+  const counterpartyBaseNpv = counterpartyRow?.NPV == null ? null : Number(counterpartyRow.NPV);
+  const counterpartyLiveValue = counterpartyLiveNpv ?? counterpartyBaseNpv;
+  const cpDelta = counterpartyBaseNpv == null || counterpartyLiveValue == null ? 0 : counterpartyLiveValue - counterpartyBaseNpv;
+  const cpDir = cpDelta > 1e-6 ? "up" : cpDelta < -1e-6 ? "down" : "flat";
+  const cpArrow = cpDir === "up" ? "▲" : cpDir === "down" ? "▼" : "";
+  const cpColor = cpDir === "up" ? "text-green-400" : cpDir === "down" ? "text-red-400" : "text-gray-200";
+  const counterpartySwapColumns = React.useMemo<GridColDef<BlotterRow>[]>(() => [
+    {
+      field: "ID",
+      headerName: "Swap",
+      width: 160,
+      renderCell: (params) => (
+        <SwapLink
+          id={params?.value}
+          row={params.row as BlotterRow}
+          onOpenSwap={handleOpenSwap}
+          onPauseTicks={pauseTicksForLink}
+          onResumeTicks={resumeTicksForLink}
+        />
+      ),
+    },
+    {
+      field: "StartDate",
+      headerName: "Start date",
+      width: 140,
+      valueFormatter: (p: any) => formatDateValue(p?.value),
+      renderCell: (p: GridRenderCellParams<BlotterRow, any>) => <span>{formatDateValue(p?.value)}</span>,
+    },
+    {
+      field: "TerminationDate",
+      headerName: "Maturity",
+      width: 140,
+      valueFormatter: (p: any) => formatDateValue(p?.value),
+      renderCell: (p: GridRenderCellParams<BlotterRow, any>) => <span>{formatDateValue(p?.value)}</span>,
+    },
+    {
+      field: "FixedRate",
+      headerName: "Fixed rate",
+      width: 120,
+      align: "right",
+      valueFormatter: ({ value }: { value: any }) => (value == null ? "" : `${Number(value).toFixed(2)} %`),
+      renderCell: (p) => <span>{p?.value == null ? "" : `${Number(p.value).toFixed(2)} %`}</span>,
+    },
+    {
+      field: "ParRate",
+      headerName: "Par rate",
+      width: 120,
+      align: "right",
+      valueFormatter: ({ value }: { value: any }) => (value == null ? "" : `${Number(value).toFixed(2)} %`),
+      renderCell: (p) => <span>{p?.value == null ? "" : `${Number(p.value).toFixed(2)} %`}</span>,
+    },
+    {
+      field: "NPV",
+      headerName: "NPV",
+      width: 180,
+      align: "right",
+      renderCell: (p) => {
+        const baseVal = (p.row as any).__baseNPV;
+        const cur = p.value == null ? null : Number(p.value);
+        const delta = baseVal == null || cur == null ? 0 : cur - Number(baseVal);
+        const dir = delta > 1e-6 ? "up" : delta < -1e-6 ? "down" : "flat";
+        const arrow = dir === "up" ? "▲" : dir === "down" ? "▼" : "";
+        const color = dir === "up" ? "text-green-400" : dir === "down" ? "text-red-400" : "text-gray-200";
+        return (
+          <span className={`flex items-center justify-end gap-1 font-mono ${color}`}>
+            {arrow && <span>{arrow}</span>}
+            <span>{formatUsd(cur)}</span>
+          </span>
+        );
+      },
+    },
+    {
+      field: "Notional",
+      headerName: "Notional",
+      width: 180,
+      align: "right",
+      valueFormatter: ({ value }: { value: any }) => formatUsd(value == null ? null : Math.abs(Number(value))),
+      renderCell: (p) => <span>{formatUsd(p?.value == null ? null : Math.abs(Number(p.value)))}</span>,
+    },
+  ], [formatDateValue, formatUsd, handleOpenSwap, pauseTicksForLink, resumeTicksForLink]);
+
+  const counterpartySwapRows = React.useMemo(() => counterpartySwaps.map((row) => {
+    const key = row.ID ?? row.id;
+    const override = key == null ? null : approxOverrides[String(key)];
+    const baseNPV = row.NPV == null ? null : Number(row.NPV);
+    return {
+      ...row,
+      __baseNPV: baseNPV,
+      ...(override || {}),
+      id: row.id,
+    };
+  }), [counterpartySwaps, approxOverrides]);
+
+  const counterpartySwapsTableText = React.useCallback(() => tableToTsv(counterpartySwapColumns, counterpartySwapRows), [counterpartySwapColumns, counterpartySwapRows]);
+  const counterpartyPageStart = counterpartySwapCount === 0 ? 0 : counterpartyPagination.page * counterpartyPagination.pageSize + 1;
+  const counterpartyPageEnd = counterpartySwapCount === 0 ? 0 : Math.min((counterpartyPagination.page + 1) * counterpartyPagination.pageSize, counterpartySwapCount);
+
   return (
     <div className="min-h-screen bg-gray-950 text-gray-100">
       {fatalError || approxFatal ? (
@@ -1073,6 +1395,110 @@ const renderRateEditCell = React.useCallback((params: GridRenderEditCellParams) 
       ) : (
         <>
           <VerticalSplit top={Top} bottom={Bottom} initialTopHeight={520} />
+          {counterpartyId && (
+            <Modal title={`Counterparty ${counterpartyId}`}>
+              {counterpartyLoading ? (
+                <div className="text-sm text-gray-400">Loading counterparty…</div>
+              ) : counterpartyRow ? (
+                <div className="space-y-4 text-sm text-gray-200">
+                  <div className="space-y-1">
+                    <div className="text-xs uppercase tracking-wide text-gray-500">Exposure</div>
+                    <div className={`flex items-center gap-2 font-mono text-base ${cpColor}`}>
+                      {cpArrow && <span>{cpArrow}</span>}
+                      <span>{formatUsd(counterpartyLiveValue)}</span>
+                    </div>
+                  </div>
+                  <div className="text-xs text-gray-500">Pricing time: {formatDateValue(counterpartyRow.PricingTime)}</div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setCounterpartyTab("cashflows")}
+                      className={`px-3 py-1.5 text-sm rounded-md border ${counterpartyTab === "cashflows" ? "border-amber-400 text-amber-200 bg-gray-800" : "border-gray-800 text-gray-400 hover:text-gray-200"}`}
+                    >
+                      Cashflows
+                    </button>
+                    <button
+                      onClick={() => setCounterpartyTab("swaps")}
+                      className={`px-3 py-1.5 text-sm rounded-md border ${counterpartyTab === "swaps" ? "border-amber-400 text-amber-200 bg-gray-800" : "border-gray-800 text-gray-400 hover:text-gray-200"}`}
+                    >
+                      Swaps
+                    </button>
+                  </div>
+                  <div className="border border-gray-800 rounded-md bg-gray-900 p-3 h-[360px] flex flex-col gap-3">
+                    {counterpartyTab === "cashflows" ? (
+                      <div className="flex-1 border border-dashed border-gray-700 rounded-md bg-gray-950 flex items-center justify-center text-gray-500">
+                        Cashflows content coming soon.
+                      </div>
+                    ) : (
+                      <>
+                        <div className="flex items-center justify-between text-xs uppercase tracking-wide text-gray-500">
+                          <div>Swaps</div>
+                          <CopyTableButton getText={counterpartySwapsTableText} />
+                        </div>
+                        <div className="flex items-center justify-between gap-3 text-xs text-gray-300 border border-gray-800 rounded-md px-3 py-2 bg-gray-950">
+                          <div className="flex items-center gap-2">
+                            <label className="text-gray-400">Rows per page</label>
+                            <select
+                              className="bg-gray-900 border border-gray-700 rounded px-2 py-1 text-gray-200"
+                              value={counterpartyPagination.pageSize}
+                              onChange={(e) => setCounterpartyPagination((m) => ({ ...m, pageSize: Number(e.target.value), page: 0 }))}
+                            >
+                              {[10, 20, 50].map((n) => (
+                                <option key={n} value={n}>{n}</option>
+                              ))}
+                            </select>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <button
+                              className="px-2 py-1 rounded bg-gray-900 border border-gray-700 text-gray-200 disabled:opacity-50"
+                              disabled={counterpartyPagination.page <= 0}
+                              onClick={() => setCounterpartyPagination((m) => ({ ...m, page: Math.max(0, m.page - 1) }))}
+                            >
+                              Prev
+                            </button>
+                            <button
+                              className="px-2 py-1 rounded bg-gray-900 border border-gray-700 text-gray-200 disabled:opacity-50"
+                              disabled={(counterpartyPagination.page + 1) * counterpartyPagination.pageSize >= counterpartySwapCount}
+                              onClick={() => setCounterpartyPagination((m) => ({ ...m, page: m.page + 1 }))}
+                            >
+                              Next
+                            </button>
+                            <span className="text-gray-400">
+                              {counterpartySwapCount > 0
+                                ? `${counterpartyPageStart}–${counterpartyPageEnd} of ${counterpartySwapCount}`
+                                : "0 of 0"}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="flex-1 min-h-0">
+                          <DataGrid
+                            rows={counterpartySwapRows}
+                            columns={counterpartySwapColumns}
+                            density="compact"
+                            hideFooter
+                            loading={counterpartySwapsLoading}
+                            paginationMode="server"
+                            sortingMode="server"
+                            paginationModel={counterpartyPagination}
+                            onPaginationModelChange={setCounterpartyPagination}
+                            sortModel={counterpartySort}
+                            onSortModelChange={setCounterpartySort}
+                            sx={{ ...gridBaseSx, height: "100%" }}
+                          />
+                        </div>
+                      </>
+                    )}
+                  </div>
+                  <div>
+                    <button onClick={closeCounterparty} className="px-3 py-1.5 rounded-md border border-gray-700 bg-gray-900 text-gray-300 hover:bg-gray-800">
+                      Close
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="text-sm text-gray-400">Counterparty data unavailable.</div>
+              )}
+            </Modal>
+          )}
           {swapId && (
             <Modal title={`Swap ${swapId}`}>
               <SwapModalShell
@@ -1086,6 +1512,8 @@ const renderRateEditCell = React.useCallback((params: GridRenderEditCellParams) 
                 floatFlows={modalFloatFlows}
                 floatFixings={modalFloatFixings}
                 onRequestFloatFixings={requestFloatFixings}
+                onRequestTermsheet={requestTermsheet}
+                termsheetLoading={termsheetLoading}
               />
             </Modal>
           )}
@@ -1240,6 +1668,20 @@ function BlotterGrid({ approxReady, approxOverrides, requestApproximation, clear
     };
     if (nIdx >= 0) cols[nIdx] = { ...cols[nIdx], ...notionalCol };
     else cols.push(notionalCol);
+    const cpIdx = cols.findIndex((c) => c.field === "CounterpartyID");
+    if (cpIdx >= 0) {
+      cols[cpIdx] = {
+        ...cols[cpIdx],
+        width: 200,
+        renderCell: (params) => (
+          <CounterpartyLinkCell
+            value={params?.value}
+            onPauseTicks={onPauseTicks}
+            onResumeTicks={onResumeTicks}
+          />
+        ),
+      } as GridColDef<BlotterRow>;
+    }
     return cols;
   }, [apiCols, fmtDate, onOpenSwap, onPauseTicks, onResumeTicks, usd]);
 
@@ -1359,6 +1801,7 @@ function BlotterGrid({ approxReady, approxOverrides, requestApproximation, clear
       };
     });
   }, [rows, approxOverrides]);
+  const getBlotterTableText = React.useCallback(() => tableToTsv(columns, displayRows), [columns, displayRows]);
 
   return (
     <div className="h-[420px] border border-gray-800 rounded-md bg-gray-900 flex flex-col">
@@ -1397,6 +1840,7 @@ function BlotterGrid({ approxReady, approxOverrides, requestApproximation, clear
                 : '0 of 0'}
             </span>
           </div>
+          <CopyTableButton getText={getBlotterTableText} />
         </div>
       </div>
 
@@ -1418,11 +1862,7 @@ function BlotterGrid({ approxReady, approxOverrides, requestApproximation, clear
           disableColumnMenu
           hideFooter
           sx={{
-            color: '#e5e7eb',
-            border: 0,
-            '& .MuiDataGrid-columnHeaders': { backgroundColor: '#0b1220' },
-            '& .MuiDataGrid-row': { backgroundColor: '#111827' },
-            '& .MuiDataGrid-cell': { borderColor: '#1f2937' },
+            ...gridBaseSx,
           }}
         />
       </div>
@@ -1454,6 +1894,29 @@ function SwapLink({ id, row, onOpenSwap, onPauseTicks, onResumeTicks }: { id: st
   return (
     <a href={`/swap/${id ?? ""}`} onMouseDown={onMouseDown} onMouseUp={onMouseUp} onClick={onClick} className="text-blue-400 underline hover:text-blue-300">
       {id == null ? "—" : String(id)}
+    </a>
+  );
+}
+
+function CounterpartyLinkCell({ value, onPauseTicks, onResumeTicks }: { value: string | number | null | undefined; onPauseTicks?: () => void; onResumeTicks?: () => void }) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const id = value == null ? null : String(value);
+  const onMouseDown = () => onPauseTicks?.();
+  const onMouseUp = () => onResumeTicks?.();
+  const onClick = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    (e as any).defaultMuiPrevented = true;
+    if (!id) return;
+    const sp = new URLSearchParams(searchParams?.toString() || "");
+    sp.set("counterparty", id);
+    router.push(`${pathname}?${sp.toString()}`, { scroll: false });
+  };
+  return (
+    <a href={id ? `?counterparty=${id}` : "#"} onMouseDown={onMouseDown} onMouseUp={onMouseUp} onClick={onClick} className="text-blue-400 underline hover:text-blue-300">
+      {id ?? "—"}
     </a>
   );
 }

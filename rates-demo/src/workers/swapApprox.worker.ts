@@ -22,6 +22,7 @@ const ctx: DedicatedWorkerGlobalScope = self as unknown as DedicatedWorkerGlobal
 let pyodide: PyodideModule | null = null;
 let mdHelper: ((rows: PyProxy) => PyProxy) | null = null;
 let approxHelper: ((swaps: PyProxy, risk: PyProxy, md: PyProxy) => PyProxy) | null = null;
+let approxCounterpartyHelper: ((npv: number, risk: PyProxy, md: PyProxy) => any) | null = null;
 let setBaseCurveFn: ((rows: PyProxy) => void) | null = null;
 let initialized = false;
 let latestCurveRows: MarketRow[] | null = null;
@@ -29,6 +30,7 @@ let latestSwaps: SwapRow[] | null = null;
 let latestRisk: RiskRow[] | null = null;
 let latestMdChanges: MdChangeRow[] | null = null;
 let baseCurveRows: MarketRow[] | null = null;
+const counterpartyMap = new Map<string, { npv: number; risk: RiskRow | null }>();
 
 async function init(baseUrl: string, datafeedUrl: string, approxUrl: string) {
   try {
@@ -54,7 +56,7 @@ async function init(baseUrl: string, datafeedUrl: string, approxUrl: string) {
       + `m_swap = types.ModuleType('py.swap_approximation'); m_swap.__package__='py'\n`
       + `exec(compile(${JSON.stringify(approxCode)}, 'py/swap_approximation.py', 'exec'), m_swap.__dict__)\n`
       + `sys.modules['py.swap_approximation'] = m_swap\n`
-      + `from py.swap_approximation import get_md_changes, aproximate_swap_quotes\n`
+      + `from py.swap_approximation import get_md_changes, aproximate_swap_quotes, aproximate_counterparty_npv\n`
       + `base_curve_df = None\n`
       + `def __set_base_curve(rows):\n`
       + `    global base_curve_df\n`
@@ -93,11 +95,18 @@ async function init(baseUrl: string, datafeedUrl: string, approxUrl: string) {
       + `    md_df = pd.DataFrame(md_changes_rows)\n`
       + `    if 'Term' in md_df.columns:\n`
       + `        md_df = md_df.set_index('Term')\n`
-      + `    return aproximate_swap_quotes(swaps_df, risk_df, md_df).to_dict(orient='records')\n`;
+      + `    return aproximate_swap_quotes(swaps_df, risk_df, md_df).to_dict(orient='records')\n`
+      + `def __approx_counterparty(npv_value, risk_rows, md_changes_rows):\n`
+      + `    risk_df = pd.DataFrame(risk_rows)\n`
+      + `    md_df = pd.DataFrame(md_changes_rows)\n`
+      + `    if 'Term' in md_df.columns:\n`
+      + `        md_df = md_df.set_index('Term')\n`
+      + `    return aproximate_counterparty_npv(float(npv_value), risk_df, md_df)\n`;
 
     loaded.runPython(bootstrap);
     mdHelper = loaded.globals.get("__md_from_market") as typeof mdHelper;
     approxHelper = loaded.globals.get("__approx_swaps") as typeof approxHelper;
+    approxCounterpartyHelper = loaded.globals.get("__approx_counterparty") as typeof approxCounterpartyHelper;
     setBaseCurveFn = loaded.globals.get("__set_base_curve") as typeof setBaseCurveFn;
 
     // Fetch base curve once from API to seed original market data.
@@ -173,32 +182,83 @@ function handleSwaps(swaps: SwapRow[], risk: RiskRow[]) {
   tryApproximate();
 }
 
+function handleCounterparty(payload: { id: string; npv: number; risk?: RiskRow | null; remove?: boolean }) {
+  if (!payload?.id) return;
+  if (payload.remove) {
+    counterpartyMap.delete(payload.id);
+    return;
+  }
+  counterpartyMap.set(payload.id, {
+    npv: Number(payload.npv ?? 0),
+    risk: payload.risk || null,
+  });
+  tryApproximate();
+}
+
 function tryApproximate() {
-  if (!initialized || !approxHelper) return;
+  if (!initialized) return;
   if (!latestCurveRows || !latestCurveRows.length) return;
-  if (!latestSwaps || !latestSwaps.length) return;
-  if (!latestRisk || !latestRisk.length) return;
+  if (!latestMdChanges || !latestMdChanges.length) return;
+  if (approxHelper && latestSwaps && latestSwaps.length && latestRisk && latestRisk.length) {
+    const py = pyodide as PyodideModule;
+    let swapsPy: PyProxy | null = null;
+    let riskPy: PyProxy | null = null;
+    let mdPy: PyProxy | null = null;
+    let resultProxy: PyProxy | null = null;
+    try {
+      swapsPy = py.toPy(latestSwaps);
+      riskPy = py.toPy(latestRisk);
+      mdPy = py.toPy(latestMdChanges);
+      resultProxy = approxHelper(swapsPy, riskPy, mdPy);
+      const arr = resultProxy?.toJs?.({ create_proxies: false }) as Record<string, unknown>[] | undefined;
+      const plain = arr ? (JSON.parse(JSON.stringify(arr)) as Record<string, unknown>[]) : [];
+      ctx.postMessage({ type: "approx", rows: plain });
+    } catch (e) {
+      ctx.postMessage({ type: "error", error: String(e) });
+    } finally {
+      if (swapsPy && typeof swapsPy.destroy === "function") swapsPy.destroy();
+      if (riskPy && typeof riskPy.destroy === "function") riskPy.destroy();
+      if (mdPy && typeof mdPy.destroy === "function") mdPy.destroy();
+      if (resultProxy && typeof resultProxy.destroy === "function") resultProxy.destroy();
+    }
+  }
+  approximateCounterparties();
+}
+
+function approximateCounterparties() {
+  if (!approxCounterpartyHelper || !counterpartyMap.size) return;
   if (!latestMdChanges || !latestMdChanges.length) return;
   const py = pyodide as PyodideModule;
-  let swapsPy: PyProxy | null = null;
-  let riskPy: PyProxy | null = null;
   let mdPy: PyProxy | null = null;
-  let resultProxy: PyProxy | null = null;
   try {
-    swapsPy = py.toPy(latestSwaps);
-    riskPy = py.toPy(latestRisk);
     mdPy = py.toPy(latestMdChanges);
-    resultProxy = approxHelper(swapsPy, riskPy, mdPy);
-    const arr = resultProxy?.toJs?.({ create_proxies: false }) as Record<string, unknown>[] | undefined;
-    const plain = arr ? (JSON.parse(JSON.stringify(arr)) as Record<string, unknown>[]) : [];
-    ctx.postMessage({ type: "approx", rows: plain });
+    const results: Array<{ id: string; npv: number }> = [];
+    counterpartyMap.forEach((value, key) => {
+      let riskPy: PyProxy | null = null;
+      try {
+        const riskRows = value.risk ? [{ ...value.risk }] : [];
+        riskPy = py.toPy(riskRows);
+        const helper = approxCounterpartyHelper;
+        if (!helper) return;
+        if (!riskPy || !mdPy) {
+          throw new Error("py proxy unavailable");
+        }
+        const res = helper(value.npv ?? 0, riskPy, mdPy);
+        const npv = typeof res === "number" ? res : Number((res as any)?.toJs?.({ create_proxies: false }));
+        results.push({ id: key, npv });
+      } catch (e) {
+        ctx.postMessage({ type: "error", error: String(e) });
+      } finally {
+        if (riskPy && typeof riskPy.destroy === "function") riskPy.destroy();
+      }
+    });
+    if (results.length) {
+      ctx.postMessage({ type: "counterpartyApprox", rows: results });
+    }
   } catch (e) {
     ctx.postMessage({ type: "error", error: String(e) });
   } finally {
-    if (swapsPy && typeof swapsPy.destroy === "function") swapsPy.destroy();
-    if (riskPy && typeof riskPy.destroy === "function") riskPy.destroy();
     if (mdPy && typeof mdPy.destroy === "function") mdPy.destroy();
-    if (resultProxy && typeof resultProxy.destroy === "function") resultProxy.destroy();
   }
 }
 
@@ -213,5 +273,12 @@ ctx.onmessage = async (ev: MessageEvent) => {
     handleCurve(msg.market as MarketRow[]);
   } else if (msg.type === "swaps") {
     handleSwaps(msg.swaps as SwapRow[], msg.risk as RiskRow[]);
+  } else if (msg.type === "counterparty") {
+    handleCounterparty({
+      id: String(msg.id ?? ""),
+      npv: Number(msg.npv ?? 0),
+      risk: msg.risk as RiskRow | null,
+      remove: !!msg.remove,
+    });
   }
 };

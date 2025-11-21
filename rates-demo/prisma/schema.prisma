@@ -75,7 +75,7 @@ model MainAgg {
   RowType String
   ID      String
   NPV     Float?
-  Notional BigInt?
+  Notional Decimal?
   PricingTime DateTime?
 
   @@id([RowType, ID])

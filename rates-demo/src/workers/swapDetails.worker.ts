@@ -86,25 +86,51 @@ function computeFloatFlows(rows?: MarketRow[]): any[] {
   }
 }
 
-function fetchFixingsTable(index: number | null): { columns: string[]; rows: any[] } | null {
+function fetchFixingsTable(index: number | null, rows?: MarketRow[]): { columns: string[]; rows: any[]; cashflow?: any } | null {
   if (!pyodide || index == null || Number.isNaN(index)) return null;
+  const payload = Array.isArray(rows) ? rows.map((r) => ({ Term: String(r.Term), Rate: Number(r.Rate) })) : null;
   pyodide.globals.set("swap_fixings_row_index", Number(index));
+  pyodide.globals.set("swap_fixings_md_json", payload ? JSON.stringify(payload) : "[]");
   const pyCode = `
-import json
+import json, pandas as pd, numpy as np, math
 idx = int(swap_fixings_row_index)
-table = get_fixings_table(idx)
-columns = list(table.columns) if hasattr(table, 'columns') else []
-if hasattr(table, 'columns'):
-    for col in table.columns:
-        ser = table[col]
+md_rows = json.loads(swap_fixings_md_json)
+md_df = pd.DataFrame(md_rows)
+if not md_df.empty:
+    if 'Rate' in md_df.columns:
+        md_df['Rate'] = md_df['Rate'].astype(float)
+cashflow_row, fixings_table = get_clicked_cashflow_fixings_data(idx, md_df if not md_df.empty else None)
+def _coerce(val):
+    if hasattr(val, 'isoformat'):
+        return val.isoformat()
+    if isinstance(val, (pd.Timestamp, )):
+        return val.isoformat()
+    if isinstance(val, np.generic):
+        try:
+            val = val.item()
+        except Exception:
+            return None
+    if isinstance(val, float):
+        if math.isnan(val) or math.isinf(val):
+            return None
+    return val
+cashflow_dict = {}
+if hasattr(cashflow_row, 'items'):
+    for k, v in cashflow_row.items():
+        cashflow_dict[k] = _coerce(v)
+if hasattr(fixings_table, 'reset_index'):
+    fixings_table = fixings_table.reset_index(drop=True)
+if hasattr(fixings_table, 'columns'):
+    for col in fixings_table.columns:
+        ser = fixings_table[col]
         if hasattr(ser, 'dt'):
-            table[col] = ser.astype(str)
-result = {
-    'columns': columns,
-    'rows': table.to_dict(orient='records') if hasattr(table, 'to_dict') else []
-}
+            fixings_table[col] = ser.astype(str)
+columns = list(fixings_table.columns) if hasattr(fixings_table, 'columns') else []
+records = fixings_table.to_dict(orient='records') if hasattr(fixings_table, 'to_dict') else []
+rows = [{k: _coerce(v) for k, v in rec.items()} for rec in records]
 del swap_fixings_row_index
-json.dumps(result)
+del swap_fixings_md_json
+json.dumps({'cashflow': cashflow_dict, 'columns': columns, 'rows': rows})
 `;
   try {
     const res = runPy(pyCode);
@@ -165,7 +191,8 @@ from py.swap_details import (
     get_current_swap_price,
     get_fixed_flows,
     get_float_flows,
-    get_fixings_table,
+    get_clicked_cashflow_fixings_data,
+    build_swap_termsheet_html,
 )
 `;
 
@@ -288,14 +315,25 @@ del swap_curve_update_json
     if (!initialized) return;
     try {
       const idx = typeof msg.index === "number" ? msg.index : null;
-      const result = fetchFixingsTable(idx);
+      const marketRows = Array.isArray(msg.market) ? (msg.market as MarketRow[]) : null;
+      const result = fetchFixingsTable(idx, marketRows || undefined);
       ctx.postMessage({
         type: "float_fixings",
         swapId: msg.swapId,
         index: idx,
         columns: result?.columns ?? [],
         rows: result?.rows ?? [],
+        cashflow: result?.cashflow ?? null,
       });
+    } catch (e) {
+      ctx.postMessage({ type: "error", swapId: msg.swapId, error: String(e) });
+    }
+  } else if (msg.type === "termsheet") {
+    if (!initialized) return;
+    try {
+      const htmlJson = runPy("import json\njson.dumps(build_swap_termsheet_html())");
+      const html = htmlJson ? JSON.parse(htmlJson as string) : null;
+      ctx.postMessage({ type: "termsheet", swapId: msg.swapId, html });
     } catch (e) {
       ctx.postMessage({ type: "error", swapId: msg.swapId, error: String(e) });
     }

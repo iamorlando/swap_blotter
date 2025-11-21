@@ -45,3 +45,16 @@ def aproximate_swap_quotes(swaps_df: DataFrame, risk_df: DataFrame, md_changes_d
     swaps_df["ParRate"] = rates + (new_npvs / fixedraterisk)/100
 
     return swaps_df
+
+def aproximate_counterparty_npv(npv: float, risk_df: DataFrame, md_changes_df:DataFrame) -> float:
+    term_cols = md_changes_df.index.tolist()
+    if risk_df is None or risk_df.empty:
+        return npv
+
+    for col in term_cols:
+        if col not in risk_df.columns:
+            risk_df[col] = 0.0
+    risk = risk_df[[f'c_{i}' for i in list(term_cols)]].to_numpy(dtype="float64")
+    changes = md_changes_df.loc[term_cols, "Change"].to_numpy(dtype="float64")
+    new_npv = npv + (risk*10_000 @ changes)
+    return new_npv

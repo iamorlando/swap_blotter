@@ -2,6 +2,8 @@
 
 import * as React from "react";
 import { GridColDef } from "@mui/x-data-grid";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { CopyTableButton, tableToTsv, getTableDragHandlers } from "./TableExportControls";
 
 export type BlotterRow = Record<string, unknown> & { id: string | number };
 
@@ -9,6 +11,7 @@ type FloatFixingsState = {
   index: number | null;
   columns: string[];
   rows: any[];
+  cashflow?: Record<string, any> | null;
   loading?: boolean;
 };
 
@@ -23,6 +26,8 @@ type SwapModalShellProps = {
   floatFlows?: any[];
   floatFixings?: FloatFixingsState | null;
   onRequestFloatFixings?: (index: number | null) => void;
+  onRequestTermsheet?: () => void;
+  termsheetLoading?: boolean;
 };
 
 export function SwapModalShell({
@@ -36,6 +41,8 @@ export function SwapModalShell({
   floatFlows = [],
   floatFixings = null,
   onRequestFloatFixings,
+  onRequestTermsheet,
+  termsheetLoading,
 }: SwapModalShellProps) {
   const [tab, setTab] = React.useState<"pricing" | "cashflows" | "fixings" | "risk">("pricing");
   React.useEffect(() => { setTab("pricing"); }, [swapId]);
@@ -59,6 +66,28 @@ export function SwapModalShell({
     const m = String(d.getMonth() + 1).padStart(2, "0");
     const day = String(d.getDate()).padStart(2, "0");
     return `${y}-${m}-${day}`;
+  };
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const renderCounterpartyLink = () => {
+    if (!counterparty || counterparty === "—") return counterparty;
+    const createHref = () => {
+      const sp = new URLSearchParams(searchParams?.toString() || "");
+      sp.delete("swap");
+      sp.set("counterparty", String(counterparty));
+      const qs = sp.toString();
+      return qs ? `${pathname}?${qs}` : pathname;
+    };
+    const onClick = (e: React.MouseEvent) => {
+      e.preventDefault();
+      router.push(createHref(), { scroll: false });
+    };
+    return (
+      <a href={createHref()} onClick={onClick} className="text-amber-300 underline hover:text-amber-100">
+        {counterparty}
+      </a>
+    );
   };
 
   const InfoRow = ({ label, value }: { label: string; value: React.ReactNode }) => (
@@ -131,6 +160,7 @@ export function SwapModalShell({
 
   const prevFixedFlowsRef = React.useRef<Record<string, number>>({});
   const prevFloatFlowsRef = React.useRef<Record<string, number>>({});
+  const prevFixingsRef = React.useRef<Record<string, number>>({});
   const prevTotalFixedNPVRef = React.useRef<number | null>(null);
   const prevTotalFloatNPVRef = React.useRef<number | null>(null);
   const fixedFlowColumns = React.useMemo(() => {
@@ -138,16 +168,31 @@ export function SwapModalShell({
     return Object.keys(fixedFlows[0]);
   }, [fixedFlows]);
   const floatFlowColumns = React.useMemo(() => {
+    if (!floatFlows || !floatFlows.length) {
+      return floatFixings?.cashflow ? Object.keys(floatFixings.cashflow) : [];
+    }
+    const cols = [...Object.keys(floatFlows[0])];
+    if (floatFixings?.cashflow) {
+      Object.keys(floatFixings.cashflow).forEach((key) => {
+        if (!cols.includes(key)) cols.push(key);
+      });
+    }
+    return cols;
+  }, [floatFlows, floatFixings]);
+  const floatRowsForDisplay = React.useMemo(() => {
     if (!floatFlows || !floatFlows.length) return [];
-    return Object.keys(floatFlows[0]);
-  }, [floatFlows]);
+    const activeIdx = typeof floatFixings?.index === "number" ? floatFixings.index : null;
+    const overrideRow = floatFixings?.cashflow && typeof floatFixings.cashflow === "object" ? floatFixings.cashflow : null;
+    if (activeIdx == null || !overrideRow) return floatFlows;
+    return floatFlows.map((row, idx) => (idx === activeIdx ? { ...row, ...overrideRow } : row));
+  }, [floatFlows, floatFixings]);
   const annotatedFixedFlows = React.useMemo(
     () => annotateFlowRows(fixedFlows, fixedFlowColumns, prevFixedFlowsRef),
     [fixedFlows, fixedFlowColumns]
   );
   const annotatedFloatFlows = React.useMemo(
-    () => annotateFlowRows(floatFlows, floatFlowColumns, prevFloatFlowsRef),
-    [floatFlows, floatFlowColumns]
+    () => annotateFlowRows(floatRowsForDisplay, floatFlowColumns, prevFloatFlowsRef),
+    [floatRowsForDisplay, floatFlowColumns]
   );
   const totalFixedNPV = React.useMemo(() => {
     return annotatedFixedFlows.reduce((sum, row) => {
@@ -192,7 +237,8 @@ export function SwapModalShell({
     if (!columns.length) {
       return <div className="text-xs text-gray-500">No fixings available.</div>;
     }
-    return (
+    const annotatedRows = annotateFixingsRows(rows, columns, prevFixingsRef);
+    const table = (
       <div className="max-h-48 overflow-auto border border-gray-800 rounded-md bg-gray-950/80">
         <table className="w-full text-[11px] text-gray-200">
           <thead className="bg-gray-900 border-b border-gray-800 sticky top-0">
@@ -205,11 +251,28 @@ export function SwapModalShell({
           <tbody>
             {rows.length ? rows.map((fixRow, idx) => (
               <tr key={idx} className="border-b border-gray-800">
-                {columns.map((col) => (
-                  <td key={col} className="px-2 py-1 whitespace-nowrap font-mono text-gray-200">
-                    {formatFlowValue(fixRow?.[col])}
-                  </td>
-                ))}
+                {columns.map((col) => {
+                  const rawVal = fixRow?.[col];
+                  const normalized = normalizeColumnKey(col);
+                  const isTicker = TICKING_FIXING_COLUMNS.has(normalized);
+                  const displayVal = formatFlowValue(rawVal);
+                  const delta = annotatedRows[idx]?.__delta?.[col] ?? "flat";
+                  const arrow = delta === "up" ? "▲" : delta === "down" ? "▼" : "";
+                  const color = delta === "up" ? "text-green-400" : delta === "down" ? "text-red-400" : "text-gray-200";
+                  const flash = delta === "up" ? "flash-up" : delta === "down" ? "flash-down" : "";
+                  return (
+                    <td key={col} className={`px-2 py-1 whitespace-nowrap font-mono ${color} ${flash}`}>
+                      {isTicker ? (
+                        <span className="flex items-center gap-1">
+                          <span className="inline-block w-4 text-center">{arrow}</span>
+                          <span>{displayVal}</span>
+                        </span>
+                      ) : (
+                        displayVal
+                      )}
+                    </td>
+                  );
+                })}
               </tr>
             )) : (
               <tr>
@@ -220,7 +283,8 @@ export function SwapModalShell({
         </table>
       </div>
     );
-  }, [floatFixings]);
+    return table;
+  }, [floatFixings, prevFixingsRef]);
 
   return (
     <div className="space-y-4 text-sm text-gray-200">
@@ -238,7 +302,7 @@ export function SwapModalShell({
           </div>
           <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
             <InfoRow label="Notional" value={fmtUsd(notional)} />
-            <InfoRow label="Counterparty" value={counterparty} />
+            <InfoRow label="Counterparty" value={renderCounterpartyLink()} />
             <InfoRow label="Start date" value={fmtDate(startDate)} />
             <InfoRow label="Maturity" value={fmtDate(maturityDate)} />
             <InfoRow label="Fixed rate" value={fmtPct(fixedRate)} />
@@ -282,6 +346,24 @@ export function SwapModalShell({
                 <InfoRow label="Fixed rate" value={fmtPct(fixedRate)} />
                 <InfoRow label="Swap type" value={(swapRow as any)?.SwapType ?? "SOFR"} />
               </div>
+              <button
+                type="button"
+                onClick={onRequestTermsheet}
+                disabled={!onRequestTermsheet || termsheetLoading}
+                className="mt-3 flex items-center gap-1 text-xs text-amber-300 hover:text-amber-100 disabled:opacity-50"
+              >
+                {termsheetLoading ? (
+                  <span>Generating termsheet…</span>
+                ) : (
+                  <>
+                    <span>Open termsheet</span>
+                    <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
+                      <path d="M12.5 3a.5.5 0 000 1h3.793l-7.146 7.146a.5.5 0 10.707.707L17 4.707V8.5a.5.5 0 001 0V3.5a.5.5 0 00-.5-.5H12.5z" />
+                      <path d="M5 5a2 2 0 00-2 2v8a2 2 0 002 2h8a2 2 0 002-2v-3.5a.5.5 0 00-1 0V15a1 1 0 01-1 1H5a1 1 0 01-1-1V7a1 1 0 011-1h3.5a.5.5 0 000-1H5z" />
+                    </svg>
+                  </>
+                )}
+              </button>
             </div>
           </div>
         )}
@@ -304,12 +386,15 @@ export function SwapModalShell({
             </div>
             {cashflowSubTab === "floating" ? (
               <>
-                <div className="text-xs uppercase tracking-wide text-gray-500">Floating leg cashflows</div>
+                <div className="flex items-center justify-between text-xs uppercase tracking-wide text-gray-500">
+                  <div>Floating leg cashflows</div>
+                  <CopyTableButton getText={() => tableToTsv(floatFlowColumns, floatRowsForDisplay)} />
+                </div>
                 <div className="text-sm text-gray-200 flex items-center gap-2">
                   <span className="text-gray-400">Leg NPV</span>
                   {renderTicker("", floatNPVBase, totalFloatNPV, (v) => formatFlowValue(v), true)}
                 </div>
-                <div className="h-64 overflow-auto rounded-md border border-gray-800 bg-gray-950/60">
+                <div className="h-64 overflow-auto rounded-md border border-gray-800 bg-gray-950/60" {...getTableDragHandlers(() => tableToTsv(floatFlowColumns, floatRowsForDisplay))}>
                   <table className="w-full text-xs text-gray-200">
                     <thead className="sticky top-0 bg-gray-900 border-b border-gray-800">
                       <tr>
@@ -375,12 +460,15 @@ export function SwapModalShell({
               </>
             ) : (
               <>
-                <div className="text-xs uppercase tracking-wide text-gray-500">Fixed leg cashflows</div>
+                <div className="flex items-center justify-between text-xs uppercase tracking-wide text-gray-500">
+                  <div>Fixed leg cashflows</div>
+                  <CopyTableButton getText={() => tableToTsv(fixedFlowColumns, fixedFlows)} />
+                </div>
                 <div className="text-sm text-gray-200 flex items-center gap-2">
                   <span className="text-gray-400">Leg NPV</span>
                   {renderTicker("", legNPVBase, totalFixedNPV, (v) => formatFlowValue(v), true)}
                 </div>
-                <div className="h-64 overflow-auto rounded-md border border-gray-800 bg-gray-950/60">
+                <div className="h-64 overflow-auto rounded-md border border-gray-800 bg-gray-950/60" {...getTableDragHandlers(() => tableToTsv(fixedFlowColumns, fixedFlows))}>
                   <table className="w-full text-xs text-gray-200">
                   <thead className="sticky top-0 bg-gray-900 border-b border-gray-800">
                     <tr>
@@ -475,6 +563,11 @@ function DataGridLike({ rows, cols }: { rows: any[]; cols: GridColDef<any>[] }) 
 
 const FIXED_VALUE_COLUMNS = new Set<string>(["npv", "discount factor"]);
 const FLOAT_VALUE_COLUMNS = new Set<string>(["npv", "discount factor", "rate", "cashflow"]);
+const TICKING_FIXING_COLUMNS = new Set<string>(["fixing", "hedgingnotional"]);
+
+function normalizeColumnKey(col: string) {
+  return (col || "").toLowerCase().replace(/[\s_]/g, "");
+}
 
 function isHighlightedFlowColumn(col: string, targets: Set<string>) {
   if (!col) return false;
@@ -508,4 +601,50 @@ function annotateFlowRows(
   });
   prevRef.current = nextPrev;
   return rows;
+}
+
+function annotateFixingsRows(
+  rows: any[],
+  columns: string[],
+  prevRef: React.MutableRefObject<Record<string, number>>
+) {
+  const nextPrev: Record<string, number> = {};
+  const annotated = rows.map((row = {}, rowIdx) => {
+    const entry: Record<string, any> = { ...row, __delta: {} };
+    columns.forEach((col) => {
+      const normalized = normalizeColumnKey(col);
+      if (!TICKING_FIXING_COLUMNS.has(normalized)) return;
+      const val = row?.[col];
+      const num = coerceNumber(val);
+      if (num == null) return;
+      const key = `${rowIdx}-${normalized}`;
+      const prev = prevRef.current[key];
+      let dir: "up" | "down" | "flat" = "flat";
+      if (prev != null) {
+        if (num > prev + 1e-10) dir = "up";
+        else if (num < prev - 1e-10) dir = "down";
+      }
+      entry.__delta[col] = dir;
+      nextPrev[key] = num;
+    });
+    return entry;
+  });
+  prevRef.current = nextPrev;
+  return annotated;
+}
+
+function coerceNumber(val: any): number | null {
+  if (typeof val === "number") {
+    return Number.isFinite(val) ? val : null;
+  }
+  if (typeof val === "bigint") {
+    return Number(val);
+  }
+  if (typeof val === "string") {
+    const cleaned = val.replace(/[^0-9eE+.-]/g, "");
+    if (!cleaned) return null;
+    const num = Number(cleaned);
+    return Number.isFinite(num) ? num : null;
+  }
+  return null;
 }
