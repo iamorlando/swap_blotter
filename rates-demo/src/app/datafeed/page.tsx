@@ -3,7 +3,7 @@
 import * as React from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Scatter } from "recharts";
-import { DataGrid, GridColDef, GridPaginationModel, GridSortModel, GridRenderEditCellParams } from "@mui/x-data-grid";
+import { DataGrid, GridColDef, GridPaginationModel, GridSortModel, GridRenderEditCellParams, GridRenderCellParams, GridValueFormatterParams } from "@mui/x-data-grid";
 import { Slider, TextField } from "@mui/material";
 import VerticalSplit from "@/components/VerticalSplit";
 import HorizontalSplit from "@/components/HorizontalSplit";
