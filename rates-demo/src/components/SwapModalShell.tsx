@@ -1,8 +1,9 @@
 "use client";
 
 import * as React from "react";
-import { GridColDef } from "@mui/x-data-grid";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { buildRiskSeries } from "@/lib/riskSeries";
+import { RiskBarChart } from "./RiskBarChart";
 import { CopyTableButton, tableToTsv, getTableDragHandlers } from "./TableExportControls";
 
 export type BlotterRow = Record<string, unknown> & { id: string | number };
@@ -115,24 +116,7 @@ export function SwapModalShell({
     return out;
   }, [riskData]);
 
-  const riskGrid = React.useMemo(() => {
-    if (!riskRow) return { cols: [], rows: [], dvo1: 0 };
-    const entries: Array<{ term: string; exposure: number }> = [];
-    Object.entries(riskRow).forEach(([key, val]) => {
-      if (key === "R" || key === "PricingTime" || key === "z" || key.toLowerCase() === "rowtype" || key.toLowerCase() === "id") return;
-      const num = typeof val === "number" ? val : Number(val);
-      if (!Number.isFinite(num) || Number.isNaN(num) || Math.abs(num) < 1e-10 || num === 0) return;
-      const term = key.startsWith("c_") ? key.slice(2) : key;
-      entries.push({ term, exposure: num });
-    });
-    const cols: GridColDef<any>[] = [
-      { field: "term", headerName: "Term", width: 120 },
-      { field: "exposure", headerName: "Exposure", type: "number", width: 140 },
-    ];
-    const rows = entries.map((e, idx) => ({ id: idx, ...e }));
-    const dvo1 = entries.reduce((acc, e) => acc + (Number.isFinite(e.exposure) ? e.exposure : 0), 0);
-    return { cols, rows, dvo1 };
-  }, [riskRow]);
+  const riskSeries = React.useMemo(() => buildRiskSeries(riskRow), [riskRow]);
 
   const renderTicker = (label: string, baseVal: number | null | undefined, liveVal: number | null | undefined, fmt: (n: number) => string, minimal?: boolean) => {
     const base = baseVal == null ? null : Number(baseVal);
@@ -524,40 +508,15 @@ export function SwapModalShell({
           <div className="space-y-3">
             <div className="text-xs uppercase tracking-wide text-gray-500">Risk by tenor</div>
             <div className="text-sm text-gray-200">
-              dvo1: <span className="font-mono text-amber-300">{(riskGrid.dvo1 ?? 0).toFixed(2)}</span>
+              dvo1: <span className="font-mono text-amber-300">{(riskSeries.dvo1 ?? 0).toFixed(2)}</span>
             </div>
-            <div className="h-64 overflow-auto rounded-md border border-gray-800 bg-gray-950/60">
-              <DataGridLike rows={riskGrid.rows} cols={riskGrid.cols} />
+            <div className="h-64 rounded-md border border-gray-800 bg-gray-950/60 p-3">
+              <RiskBarChart exposures={riskSeries.exposures} height="100%" />
             </div>
           </div>
         )}
       </div>
     </div>
-  );
-}
-
-function DataGridLike({ rows, cols }: { rows: any[]; cols: GridColDef<any>[] }) {
-  return (
-    <table className="w-full text-sm text-gray-200 border border-gray-800 rounded-md">
-      <thead className="bg-gray-900 border-b border-gray-800 sticky top-0 z-10">
-        <tr>
-          {cols.map((c) => (
-            <th key={c.field} className="px-3 py-2 text-left font-medium text-gray-300">{c.headerName ?? c.field}</th>
-          ))}
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map((r) => (
-          <tr key={r.id} className="border-b border-gray-800">
-            {cols.map((c) => (
-              <td key={c.field} className="px-3 py-2">
-                {String((r as any)[c.field] ?? "")}
-              </td>
-            ))}
-          </tr>
-        ))}
-      </tbody>
-    </table>
   );
 }
 

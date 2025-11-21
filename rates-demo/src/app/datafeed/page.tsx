@@ -11,6 +11,8 @@ import { columnsMeta as generatedColumns, idField as generatedIdField } from "@/
 import Modal from "@/components/Modal";
 import { SwapModalShell } from "@/components/SwapModalShell";
 import { CopyTableButton, tableToTsv } from "@/components/TableExportControls";
+import { RiskBarChart } from "@/components/RiskBarChart";
+import { buildRiskSeries } from "@/lib/riskSeries";
 
 let sharedDatafeedWorker: Worker | null = null;
 let datafeedInitialized = false;
@@ -137,7 +139,7 @@ function DatafeedPageInner() {
   const [counterpartyRisk, setCounterpartyRisk] = React.useState<Record<string, any> | null>(null);
   const [counterpartyLiveNpv, setCounterpartyLiveNpv] = React.useState<number | null>(null);
   const [counterpartyLoading, setCounterpartyLoading] = React.useState(false);
-  const [counterpartyTab, setCounterpartyTab] = React.useState<"cashflows" | "swaps">("cashflows");
+  const [counterpartyTab, setCounterpartyTab] = React.useState<"cashflows" | "swaps" | "risk">("cashflows");
   const [counterpartySwaps, setCounterpartySwaps] = React.useState<BlotterRow[]>([]);
   const [counterpartySwapCount, setCounterpartySwapCount] = React.useState(0);
   const [counterpartySwapsLoading, setCounterpartySwapsLoading] = React.useState(false);
@@ -1290,6 +1292,7 @@ const renderRateEditCell = React.useCallback((params: GridRenderEditCellParams) 
   const cpDir = cpDelta > 1e-6 ? "up" : cpDelta < -1e-6 ? "down" : "flat";
   const cpArrow = cpDir === "up" ? "▲" : cpDir === "down" ? "▼" : "";
   const cpColor = cpDir === "up" ? "text-green-400" : cpDir === "down" ? "text-red-400" : "text-gray-200";
+  const counterpartyRiskSeries = React.useMemo(() => buildRiskSeries(counterpartyRisk), [counterpartyRisk]);
   const counterpartySwapColumns = React.useMemo<GridColDef<BlotterRow>[]>(() => [
     {
       field: "ID",
@@ -1422,13 +1425,19 @@ const renderRateEditCell = React.useCallback((params: GridRenderEditCellParams) 
                     >
                       Swaps
                     </button>
+                    <button
+                      onClick={() => setCounterpartyTab("risk")}
+                      className={`px-3 py-1.5 text-sm rounded-md border ${counterpartyTab === "risk" ? "border-amber-400 text-amber-200 bg-gray-800" : "border-gray-800 text-gray-400 hover:text-gray-200"}`}
+                    >
+                      Risk
+                    </button>
                   </div>
                   <div className="border border-gray-800 rounded-md bg-gray-900 p-3 h-[360px] flex flex-col gap-3">
                     {counterpartyTab === "cashflows" ? (
                       <div className="flex-1 border border-dashed border-gray-700 rounded-md bg-gray-950 flex items-center justify-center text-gray-500">
                         Cashflows content coming soon.
                       </div>
-                    ) : (
+                    ) : counterpartyTab === "swaps" ? (
                       <>
                         <div className="flex items-center justify-between text-xs uppercase tracking-wide text-gray-500">
                           <div>Swaps</div>
@@ -1486,6 +1495,16 @@ const renderRateEditCell = React.useCallback((params: GridRenderEditCellParams) 
                           />
                         </div>
                       </>
+                    ) : (
+                      <div className="flex-1 min-h-0 flex flex-col gap-2">
+                        <div className="text-xs uppercase tracking-wide text-gray-500">Risk by tenor</div>
+                        <div className="text-sm text-gray-200">
+                          dvo1: <span className="font-mono text-amber-300">{(counterpartyRiskSeries.dvo1 ?? 0).toFixed(2)}</span>
+                        </div>
+                        <div className="flex-1 min-h-0 rounded-md border border-gray-800 bg-gray-950/60 p-3">
+                          <RiskBarChart exposures={counterpartyRiskSeries.exposures} height="100%" />
+                        </div>
+                      </div>
                     )}
                   </div>
                   <div>
