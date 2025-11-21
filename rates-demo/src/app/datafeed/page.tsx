@@ -138,6 +138,11 @@ function DatafeedPageInner() {
   const [counterpartyLiveNpv, setCounterpartyLiveNpv] = React.useState<number | null>(null);
   const [counterpartyLoading, setCounterpartyLoading] = React.useState(false);
   const [counterpartyTab, setCounterpartyTab] = React.useState<"cashflows" | "swaps">("cashflows");
+  const [counterpartySwaps, setCounterpartySwaps] = React.useState<BlotterRow[]>([]);
+  const [counterpartySwapCount, setCounterpartySwapCount] = React.useState(0);
+  const [counterpartySwapsLoading, setCounterpartySwapsLoading] = React.useState(false);
+  const [counterpartyPagination, setCounterpartyPagination] = React.useState<GridPaginationModel>({ page: 0, pageSize: 10 });
+  const [counterpartySort, setCounterpartySort] = React.useState<GridSortModel>([{ field: (generatedIdField as string) || "ID", sort: "asc" }]);
   const detailsRef = React.useRef<Worker | null>(null);
   const [detailsReady, setDetailsReady] = React.useState(false);
   const [modalRisk, setModalRisk] = React.useState<any | null>(null);
@@ -155,6 +160,15 @@ function DatafeedPageInner() {
     if (val == null || Number.isNaN(val)) return "—";
     return usdFormatter.format(val).replace("$", "$ ");
   }, [usdFormatter]);
+  const formatDateValue = React.useCallback((value: any) => {
+    if (!value) return "—";
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return "—";
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  }, []);
   React.useEffect(() => {
     swapSnapshotRef.current = modalSwapRow ?? swapSnapshot;
   }, [modalSwapRow, swapSnapshot]);
@@ -170,8 +184,12 @@ function DatafeedPageInner() {
       setCounterpartyRisk(null);
       setCounterpartyLiveNpv(null);
       setCounterpartyLoading(false);
+      setCounterpartySwaps([]);
+      setCounterpartySwapCount(0);
       return;
     }
+    setCounterpartyTab("cashflows");
+    setCounterpartyPagination({ page: 0, pageSize: 10 });
     let cancelled = false;
     setCounterpartyLoading(true);
     const params = new URLSearchParams({ id: counterpartyId, rowType: "Counterparty" });
@@ -203,7 +221,39 @@ function DatafeedPageInner() {
     };
     load();
     return () => { cancelled = true; };
-  }, [counterpartyId]);
+  }, [counterpartyId, setCounterpartyTab]);
+
+  const fetchCounterpartySwaps = React.useCallback(async () => {
+    if (!counterpartyId) {
+      setCounterpartySwaps([]);
+      setCounterpartySwapCount(0);
+      return;
+    }
+    setCounterpartySwapsLoading(true);
+    try {
+      const sortField = (counterpartySort[0]?.field ?? (generatedIdField as string)) || "ID";
+      const sortOrder = (counterpartySort[0]?.sort ?? "asc") as "asc" | "desc";
+      const url = `/api/swaps?counterpartyId=${encodeURIComponent(counterpartyId)}&page=${counterpartyPagination.page}&pageSize=${counterpartyPagination.pageSize}&sortField=${sortField}&sortOrder=${sortOrder}`;
+      const res = await fetch(url);
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(`counterparty swaps fetch failed: ${res.status} ${text}`);
+      }
+      const data = await res.json();
+      const rawRows: BlotterRow[] = data.rows || [];
+      const shaped = rawRows.map((r, idx) => {
+        const idVal = (r as any).id ?? (r as any).ID ?? idx;
+        const notional = (r as any).Notional;
+        return { ...r, id: idVal, Notional: notional == null ? null : Number(notional) };
+      });
+      setCounterpartySwaps(shaped);
+      setCounterpartySwapCount(data.total || shaped.length);
+    } catch (err) {
+      console.error("[counterparty] swaps fetch", err);
+    } finally {
+      setCounterpartySwapsLoading(false);
+    }
+  }, [counterpartyId, counterpartyPagination.page, counterpartyPagination.pageSize, counterpartySort]);
 
   const prevCounterpartyRef = React.useRef<string | null>(null);
   React.useEffect(() => {
@@ -226,6 +276,11 @@ function DatafeedPageInner() {
       risk: counterpartyRisk ? { ...counterpartyRisk, ID: counterpartyApproxKey } : null,
     });
   }, [approxReady, counterpartyApproxKey, counterpartyRow, counterpartyRisk]);
+
+  React.useEffect(() => {
+    if (counterpartyTab !== "swaps") return;
+    fetchCounterpartySwaps();
+  }, [counterpartyTab, fetchCounterpartySwaps]);
   const handleOpenSwap = React.useCallback((row: BlotterRow) => {
     setSwapSnapshot(row);
     setModalSwapRow(row);
@@ -1235,6 +1290,96 @@ const renderRateEditCell = React.useCallback((params: GridRenderEditCellParams) 
   const cpDir = cpDelta > 1e-6 ? "up" : cpDelta < -1e-6 ? "down" : "flat";
   const cpArrow = cpDir === "up" ? "▲" : cpDir === "down" ? "▼" : "";
   const cpColor = cpDir === "up" ? "text-green-400" : cpDir === "down" ? "text-red-400" : "text-gray-200";
+  const counterpartySwapColumns = React.useMemo<GridColDef<BlotterRow>[]>(() => [
+    {
+      field: "ID",
+      headerName: "Swap",
+      width: 160,
+      renderCell: (params) => (
+        <SwapLink
+          id={params?.value}
+          row={params.row as BlotterRow}
+          onOpenSwap={handleOpenSwap}
+          onPauseTicks={pauseTicksForLink}
+          onResumeTicks={resumeTicksForLink}
+        />
+      ),
+    },
+    {
+      field: "StartDate",
+      headerName: "Start date",
+      width: 140,
+      valueFormatter: (p) => formatDateValue(p?.value),
+      renderCell: (p) => <span>{formatDateValue(p?.value)}</span>,
+    },
+    {
+      field: "TerminationDate",
+      headerName: "Maturity",
+      width: 140,
+      valueFormatter: (p) => formatDateValue(p?.value),
+      renderCell: (p) => <span>{formatDateValue(p?.value)}</span>,
+    },
+    {
+      field: "FixedRate",
+      headerName: "Fixed rate",
+      width: 120,
+      align: "right",
+      valueFormatter: (p) => (p?.value == null ? "" : `${Number(p.value).toFixed(2)} %`),
+      renderCell: (p) => <span>{p?.value == null ? "" : `${Number(p.value).toFixed(2)} %`}</span>,
+    },
+    {
+      field: "ParRate",
+      headerName: "Par rate",
+      width: 120,
+      align: "right",
+      valueFormatter: (p) => (p?.value == null ? "" : `${Number(p.value).toFixed(2)} %`),
+      renderCell: (p) => <span>{p?.value == null ? "" : `${Number(p.value).toFixed(2)} %`}</span>,
+    },
+    {
+      field: "NPV",
+      headerName: "NPV",
+      width: 180,
+      align: "right",
+      renderCell: (p) => {
+        const baseVal = (p.row as any).__baseNPV;
+        const cur = p.value == null ? null : Number(p.value);
+        const delta = baseVal == null || cur == null ? 0 : cur - Number(baseVal);
+        const dir = delta > 1e-6 ? "up" : delta < -1e-6 ? "down" : "flat";
+        const arrow = dir === "up" ? "▲" : dir === "down" ? "▼" : "";
+        const color = dir === "up" ? "text-green-400" : dir === "down" ? "text-red-400" : "text-gray-200";
+        return (
+          <span className={`flex items-center justify-end gap-1 font-mono ${color}`}>
+            {arrow && <span>{arrow}</span>}
+            <span>{formatUsd(cur)}</span>
+          </span>
+        );
+      },
+    },
+    {
+      field: "Notional",
+      headerName: "Notional",
+      width: 180,
+      align: "right",
+      valueFormatter: (p) => formatUsd(p?.value == null ? null : Math.abs(Number(p.value))),
+      renderCell: (p) => <span>{formatUsd(p?.value == null ? null : Math.abs(Number(p.value)))}</span>,
+    },
+  ], [formatDateValue, formatUsd, handleOpenSwap, pauseTicksForLink, resumeTicksForLink]);
+
+  const counterpartySwapRows = React.useMemo(() => counterpartySwaps.map((row) => {
+    const key = row.ID ?? row.id;
+    const override = key == null ? null : approxOverrides[String(key)];
+    const baseNPV = row.NPV == null ? null : Number(row.NPV);
+    return {
+      ...row,
+      __baseNPV: baseNPV,
+      ...(override || {}),
+      id: row.id,
+    };
+  }), [counterpartySwaps, approxOverrides]);
+
+  const counterpartySwapsTableText = React.useCallback(() => tableToTsv(counterpartySwapColumns, counterpartySwapRows), [counterpartySwapColumns, counterpartySwapRows]);
+  const counterpartyPageStart = counterpartySwapCount === 0 ? 0 : counterpartyPagination.page * counterpartyPagination.pageSize + 1;
+  const counterpartyPageEnd = counterpartySwapCount === 0 ? 0 : Math.min((counterpartyPagination.page + 1) * counterpartyPagination.pageSize, counterpartySwapCount);
 
   return (
     <div className="min-h-screen bg-gray-950 text-gray-100">
@@ -1277,9 +1422,69 @@ const renderRateEditCell = React.useCallback((params: GridRenderEditCellParams) 
                       Swaps
                     </button>
                   </div>
-                  <div className="min-h-[200px] border border-gray-800 rounded-md bg-gray-900 flex items-center justify-center text-gray-500">
-                    {counterpartyTab === "cashflows" ? "Cashflows content coming soon." : "Swaps content coming soon."}
-                  </div>
+                  {counterpartyTab === "cashflows" ? (
+                    <div className="min-h-[200px] border border-gray-800 rounded-md bg-gray-900 flex items-center justify-center text-gray-500">
+                      Cashflows content coming soon.
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between text-xs uppercase tracking-wide text-gray-500">
+                        <div>Swaps</div>
+                        <CopyTableButton getText={counterpartySwapsTableText} />
+                      </div>
+                      <div className="flex items-center justify-between gap-3 text-xs text-gray-300 border border-gray-800 rounded-md px-3 py-2 bg-gray-900">
+                        <div className="flex items-center gap-2">
+                          <label className="text-gray-400">Rows per page</label>
+                          <select
+                            className="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-gray-200"
+                            value={counterpartyPagination.pageSize}
+                            onChange={(e) => setCounterpartyPagination((m) => ({ ...m, pageSize: Number(e.target.value), page: 0 }))}
+                          >
+                            {[10, 20, 50].map((n) => (
+                              <option key={n} value={n}>{n}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button
+                            className="px-2 py-1 rounded bg-gray-800 border border-gray-700 text-gray-200 disabled:opacity-50"
+                            disabled={counterpartyPagination.page <= 0}
+                            onClick={() => setCounterpartyPagination((m) => ({ ...m, page: Math.max(0, m.page - 1) }))}
+                          >
+                            Prev
+                          </button>
+                          <button
+                            className="px-2 py-1 rounded bg-gray-800 border border-gray-700 text-gray-200 disabled:opacity-50"
+                            disabled={(counterpartyPagination.page + 1) * counterpartyPagination.pageSize >= counterpartySwapCount}
+                            onClick={() => setCounterpartyPagination((m) => ({ ...m, page: m.page + 1 }))}
+                          >
+                            Next
+                          </button>
+                          <span className="text-gray-400">
+                            {counterpartySwapCount > 0
+                              ? `${counterpartyPageStart}–${counterpartyPageEnd} of ${counterpartySwapCount}`
+                              : "0 of 0"}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="h-64">
+                        <DataGrid
+                          rows={counterpartySwapRows}
+                          columns={counterpartySwapColumns}
+                          density="compact"
+                          hideFooter
+                          loading={counterpartySwapsLoading}
+                          paginationMode="server"
+                          sortingMode="server"
+                          paginationModel={counterpartyPagination}
+                          onPaginationModelChange={setCounterpartyPagination}
+                          sortModel={counterpartySort}
+                          onSortModelChange={setCounterpartySort}
+                          sx={gridBaseSx}
+                        />
+                      </div>
+                    </div>
+                  )}
                   <div>
                     <button onClick={closeCounterparty} className="px-3 py-1.5 rounded-md border border-gray-700 bg-gray-900 text-gray-300 hover:bg-gray-800">
                       Close

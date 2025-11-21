@@ -18,12 +18,15 @@ export async function GET(req: NextRequest) {
     // Resolve Prisma model based on tableName (e.g., main -> main)
     const modelProp = (generatedTable || "main").split("_").map((p, i) => i === 0 ? p.toLowerCase() : (p.charAt(0).toUpperCase() + p.slice(1).toLowerCase())).join("");
     const repo = (prisma as any)[modelProp] || (prisma as any).main;
+    const counterpartyId = searchParams.get("counterpartyId") || undefined;
+    const where = counterpartyId ? { CounterpartyID: counterpartyId } : undefined;
 
-    const total = await repo.count();
+    const total = await repo.count({ where });
     const rows = await repo.findMany({
       skip: page * pageSize,
       take: pageSize,
       orderBy: { [sortField]: sortOrder as any },
+      where,
     });
 
     // Ensure DataGrid row id exists
