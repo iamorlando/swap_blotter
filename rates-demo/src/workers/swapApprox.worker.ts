@@ -240,6 +240,9 @@ function approximateCounterparties() {
         riskPy = py.toPy(riskRows);
         const helper = approxCounterpartyHelper;
         if (!helper) return;
+        if (!riskPy || !mdPy) {
+          throw new Error("py proxy unavailable");
+        }
         const res = helper(value.npv ?? 0, riskPy, mdPy);
         const npv = typeof res === "number" ? res : Number((res as any)?.toJs?.({ create_proxies: false }));
         results.push({ id: key, npv });
