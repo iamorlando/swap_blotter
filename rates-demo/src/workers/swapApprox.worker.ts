@@ -238,7 +238,9 @@ function approximateCounterparties() {
       try {
         const riskRows = value.risk ? [{ ...value.risk }] : [];
         riskPy = py.toPy(riskRows);
-        const res = approxCounterpartyHelper(value.npv ?? 0, riskPy, mdPy);
+        const helper = approxCounterpartyHelper;
+        if (!helper) return;
+        const res = helper(value.npv ?? 0, riskPy, mdPy);
         const npv = typeof res === "number" ? res : Number((res as any)?.toJs?.({ create_proxies: false }));
         results.push({ id: key, npv });
       } catch (e) {
