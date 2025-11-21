@@ -1324,7 +1324,7 @@ const renderRateEditCell = React.useCallback((params: GridRenderEditCellParams) 
       headerName: "Fixed rate",
       width: 120,
       align: "right",
-      valueFormatter: (p) => (p?.value == null ? "" : `${Number(p.value).toFixed(2)} %`),
+      valueFormatter: ({ value }: { value: any }) => (value == null ? "" : `${Number(value).toFixed(2)} %`),
       renderCell: (p) => <span>{p?.value == null ? "" : `${Number(p.value).toFixed(2)} %`}</span>,
     },
     {
@@ -1332,7 +1332,7 @@ const renderRateEditCell = React.useCallback((params: GridRenderEditCellParams) 
       headerName: "Par rate",
       width: 120,
       align: "right",
-      valueFormatter: (p) => (p?.value == null ? "" : `${Number(p.value).toFixed(2)} %`),
+      valueFormatter: ({ value }: { value: any }) => (value == null ? "" : `${Number(value).toFixed(2)} %`),
       renderCell: (p) => <span>{p?.value == null ? "" : `${Number(p.value).toFixed(2)} %`}</span>,
     },
     {
@@ -1360,7 +1360,7 @@ const renderRateEditCell = React.useCallback((params: GridRenderEditCellParams) 
       headerName: "Notional",
       width: 180,
       align: "right",
-      valueFormatter: (p) => formatUsd(p?.value == null ? null : Math.abs(Number(p.value))),
+      valueFormatter: ({ value }: { value: any }) => formatUsd(value == null ? null : Math.abs(Number(value))),
       renderCell: (p) => <span>{formatUsd(p?.value == null ? null : Math.abs(Number(p.value)))}</span>,
     },
   ], [formatDateValue, formatUsd, handleOpenSwap, pauseTicksForLink, resumeTicksForLink]);
