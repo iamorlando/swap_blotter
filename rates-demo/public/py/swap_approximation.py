@@ -58,3 +58,17 @@ def aproximate_counterparty_npv(npv: float, risk_df: DataFrame, md_changes_df:Da
     changes = md_changes_df.loc[term_cols, "Change"].to_numpy(dtype="float64")
     new_npv = npv + (risk*10_000 @ changes)
     return new_npv
+
+
+def aproximate_counterparty_cashflows(cf_df: DataFrame, cf_risk_df: DataFrame, md_changes_df:DataFrame) -> DataFrame:
+    term_cols = md_changes_df.index.tolist()
+    if cf_risk_df is None or cf_risk_df.empty:
+        return cf_df
+
+    for col in term_cols:
+        if col not in cf_risk_df.columns:
+            cf_risk_df[col] = 0.0
+    risk = cf_risk_df[[f'c_{i}' for i in list(term_cols)]].to_numpy(dtype="float64")
+    changes = md_changes_df.loc[term_cols, "Change"].to_numpy(dtype="float64")
+    new_npv = npv + (risk*10_000 @ changes)
+    return new_npv

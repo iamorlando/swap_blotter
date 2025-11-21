@@ -128,6 +128,58 @@ model RiskAgg {
   @@map("risk_agg")
 }
 
+// Mirrors DuckDB cashflow_tbl
+model CashflowTbl {
+  CounterpartyID String
+  PaymentDate    DateTime
+  TotalCashflow  Float?
+  TotalWeight    Float?
+
+  @@id([CounterpartyID, PaymentDate])
+  @@map("cashflow_tbl")
+}
+
+// Mirrors DuckDB cashflow_risk_tbl (bucket columns mapped to c_{term})
+model CashflowRiskTbl {
+  CounterpartyID String
+  PaymentDate    DateTime
+
+  c_1W  Float? @map("dCF_d_1W")
+  c_2W  Float? @map("dCF_d_2W")
+  c_3W  Float? @map("dCF_d_3W")
+  c_1M  Float? @map("dCF_d_1M")
+  c_2M  Float? @map("dCF_d_2M")
+  c_3M  Float? @map("dCF_d_3M")
+  c_4M  Float? @map("dCF_d_4M")
+  c_5M  Float? @map("dCF_d_5M")
+  c_6M  Float? @map("dCF_d_6M")
+  c_7M  Float? @map("dCF_d_7M")
+  c_8M  Float? @map("dCF_d_8M")
+  c_9M  Float? @map("dCF_d_9M")
+  c_10M Float? @map("dCF_d_10M")
+  c_11M Float? @map("dCF_d_11M")
+  c_12M Float? @map("dCF_d_12M")
+  c_18M Float? @map("dCF_d_18M")
+  c_2Y  Float? @map("dCF_d_2Y")
+  c_3Y  Float? @map("dCF_d_3Y")
+  c_4Y  Float? @map("dCF_d_4Y")
+  c_5Y  Float? @map("dCF_d_5Y")
+  c_6Y  Float? @map("dCF_d_6Y")
+  c_7Y  Float? @map("dCF_d_7Y")
+  c_8Y  Float? @map("dCF_d_8Y")
+  c_9Y  Float? @map("dCF_d_9Y")
+  c_10Y Float? @map("dCF_d_10Y")
+  c_12Y Float? @map("dCF_d_12Y")
+  c_15Y Float? @map("dCF_d_15Y")
+  c_20Y Float? @map("dCF_d_20Y")
+  c_25Y Float? @map("dCF_d_25Y")
+  c_30Y Float? @map("dCF_d_30Y")
+  c_40Y Float? @map("dCF_d_40Y")
+
+  @@id([CounterpartyID, PaymentDate])
+  @@map("cashflow_risk_tbl")
+}
+
 // Mirrors DuckDB fixings
 model Fixing {
   indexName String   @map("index")
