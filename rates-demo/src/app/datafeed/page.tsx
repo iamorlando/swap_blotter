@@ -1408,6 +1408,7 @@ const renderRateEditCell = React.useCallback((params: GridRenderEditCellParams) 
                       <span>{formatUsd(counterpartyLiveValue)}</span>
                     </div>
                   </div>
+                  <div className="text-xs text-gray-500">Pricing time: {formatDateValue(counterpartyRow.PricingTime)}</div>
                   <div className="flex items-center gap-2">
                     <button
                       onClick={() => setCounterpartyTab("cashflows")}
@@ -1422,69 +1423,71 @@ const renderRateEditCell = React.useCallback((params: GridRenderEditCellParams) 
                       Swaps
                     </button>
                   </div>
-                  {counterpartyTab === "cashflows" ? (
-                    <div className="min-h-[200px] border border-gray-800 rounded-md bg-gray-900 flex items-center justify-center text-gray-500">
-                      Cashflows content coming soon.
-                    </div>
-                  ) : (
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between text-xs uppercase tracking-wide text-gray-500">
-                        <div>Swaps</div>
-                        <CopyTableButton getText={counterpartySwapsTableText} />
+                  <div className="border border-gray-800 rounded-md bg-gray-900 p-3 h-[360px] flex flex-col gap-3">
+                    {counterpartyTab === "cashflows" ? (
+                      <div className="flex-1 border border-dashed border-gray-700 rounded-md bg-gray-950 flex items-center justify-center text-gray-500">
+                        Cashflows content coming soon.
                       </div>
-                      <div className="flex items-center justify-between gap-3 text-xs text-gray-300 border border-gray-800 rounded-md px-3 py-2 bg-gray-900">
-                        <div className="flex items-center gap-2">
-                          <label className="text-gray-400">Rows per page</label>
-                          <select
-                            className="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-gray-200"
-                            value={counterpartyPagination.pageSize}
-                            onChange={(e) => setCounterpartyPagination((m) => ({ ...m, pageSize: Number(e.target.value), page: 0 }))}
-                          >
-                            {[10, 20, 50].map((n) => (
-                              <option key={n} value={n}>{n}</option>
-                            ))}
-                          </select>
+                    ) : (
+                      <>
+                        <div className="flex items-center justify-between text-xs uppercase tracking-wide text-gray-500">
+                          <div>Swaps</div>
+                          <CopyTableButton getText={counterpartySwapsTableText} />
                         </div>
-                        <div className="flex items-center gap-2">
-                          <button
-                            className="px-2 py-1 rounded bg-gray-800 border border-gray-700 text-gray-200 disabled:opacity-50"
-                            disabled={counterpartyPagination.page <= 0}
-                            onClick={() => setCounterpartyPagination((m) => ({ ...m, page: Math.max(0, m.page - 1) }))}
-                          >
-                            Prev
-                          </button>
-                          <button
-                            className="px-2 py-1 rounded bg-gray-800 border border-gray-700 text-gray-200 disabled:opacity-50"
-                            disabled={(counterpartyPagination.page + 1) * counterpartyPagination.pageSize >= counterpartySwapCount}
-                            onClick={() => setCounterpartyPagination((m) => ({ ...m, page: m.page + 1 }))}
-                          >
-                            Next
-                          </button>
-                          <span className="text-gray-400">
-                            {counterpartySwapCount > 0
-                              ? `${counterpartyPageStart}–${counterpartyPageEnd} of ${counterpartySwapCount}`
-                              : "0 of 0"}
-                          </span>
+                        <div className="flex items-center justify-between gap-3 text-xs text-gray-300 border border-gray-800 rounded-md px-3 py-2 bg-gray-950">
+                          <div className="flex items-center gap-2">
+                            <label className="text-gray-400">Rows per page</label>
+                            <select
+                              className="bg-gray-900 border border-gray-700 rounded px-2 py-1 text-gray-200"
+                              value={counterpartyPagination.pageSize}
+                              onChange={(e) => setCounterpartyPagination((m) => ({ ...m, pageSize: Number(e.target.value), page: 0 }))}
+                            >
+                              {[10, 20, 50].map((n) => (
+                                <option key={n} value={n}>{n}</option>
+                              ))}
+                            </select>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <button
+                              className="px-2 py-1 rounded bg-gray-900 border border-gray-700 text-gray-200 disabled:opacity-50"
+                              disabled={counterpartyPagination.page <= 0}
+                              onClick={() => setCounterpartyPagination((m) => ({ ...m, page: Math.max(0, m.page - 1) }))}
+                            >
+                              Prev
+                            </button>
+                            <button
+                              className="px-2 py-1 rounded bg-gray-900 border border-gray-700 text-gray-200 disabled:opacity-50"
+                              disabled={(counterpartyPagination.page + 1) * counterpartyPagination.pageSize >= counterpartySwapCount}
+                              onClick={() => setCounterpartyPagination((m) => ({ ...m, page: m.page + 1 }))}
+                            >
+                              Next
+                            </button>
+                            <span className="text-gray-400">
+                              {counterpartySwapCount > 0
+                                ? `${counterpartyPageStart}–${counterpartyPageEnd} of ${counterpartySwapCount}`
+                                : "0 of 0"}
+                            </span>
+                          </div>
                         </div>
-                      </div>
-                      <div className="h-64">
-                        <DataGrid
-                          rows={counterpartySwapRows}
-                          columns={counterpartySwapColumns}
-                          density="compact"
-                          hideFooter
-                          loading={counterpartySwapsLoading}
-                          paginationMode="server"
-                          sortingMode="server"
-                          paginationModel={counterpartyPagination}
-                          onPaginationModelChange={setCounterpartyPagination}
-                          sortModel={counterpartySort}
-                          onSortModelChange={setCounterpartySort}
-                          sx={gridBaseSx}
-                        />
-                      </div>
-                    </div>
-                  )}
+                        <div className="flex-1 min-h-0">
+                          <DataGrid
+                            rows={counterpartySwapRows}
+                            columns={counterpartySwapColumns}
+                            density="compact"
+                            hideFooter
+                            loading={counterpartySwapsLoading}
+                            paginationMode="server"
+                            sortingMode="server"
+                            paginationModel={counterpartyPagination}
+                            onPaginationModelChange={setCounterpartyPagination}
+                            sortModel={counterpartySort}
+                            onSortModelChange={setCounterpartySort}
+                            sx={{ ...gridBaseSx, height: "100%" }}
+                          />
+                        </div>
+                      </>
+                    )}
+                  </div>
                   <div>
                     <button onClick={closeCounterparty} className="px-3 py-1.5 rounded-md border border-gray-700 bg-gray-900 text-gray-300 hover:bg-gray-800">
                       Close

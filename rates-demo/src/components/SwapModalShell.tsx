@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { GridColDef } from "@mui/x-data-grid";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { CopyTableButton, tableToTsv, getTableDragHandlers } from "./TableExportControls";
 
 export type BlotterRow = Record<string, unknown> & { id: string | number };
@@ -65,6 +66,28 @@ export function SwapModalShell({
     const m = String(d.getMonth() + 1).padStart(2, "0");
     const day = String(d.getDate()).padStart(2, "0");
     return `${y}-${m}-${day}`;
+  };
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const renderCounterpartyLink = () => {
+    if (!counterparty || counterparty === "—") return counterparty;
+    const createHref = () => {
+      const sp = new URLSearchParams(searchParams?.toString() || "");
+      sp.delete("swap");
+      sp.set("counterparty", String(counterparty));
+      const qs = sp.toString();
+      return qs ? `${pathname}?${qs}` : pathname;
+    };
+    const onClick = (e: React.MouseEvent) => {
+      e.preventDefault();
+      router.push(createHref(), { scroll: false });
+    };
+    return (
+      <a href={createHref()} onClick={onClick} className="text-amber-300 underline hover:text-amber-100">
+        {counterparty}
+      </a>
+    );
   };
 
   const InfoRow = ({ label, value }: { label: string; value: React.ReactNode }) => (
@@ -279,7 +302,7 @@ export function SwapModalShell({
           </div>
           <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
             <InfoRow label="Notional" value={fmtUsd(notional)} />
-            <InfoRow label="Counterparty" value={counterparty} />
+            <InfoRow label="Counterparty" value={renderCounterpartyLink()} />
             <InfoRow label="Start date" value={fmtDate(startDate)} />
             <InfoRow label="Maturity" value={fmtDate(maturityDate)} />
             <InfoRow label="Fixed rate" value={fmtPct(fixedRate)} />
