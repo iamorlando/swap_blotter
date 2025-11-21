@@ -3,7 +3,7 @@
 import * as React from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Scatter } from "recharts";
-import { DataGrid, GridColDef, GridPaginationModel, GridSortModel, GridRenderEditCellParams, GridRenderCellParams, GridValueFormatterParams } from "@mui/x-data-grid";
+import { DataGrid, GridColDef, GridPaginationModel, GridSortModel, GridRenderEditCellParams, GridRenderCellParams } from "@mui/x-data-grid";
 import { Slider, TextField } from "@mui/material";
 import VerticalSplit from "@/components/VerticalSplit";
 import HorizontalSplit from "@/components/HorizontalSplit";
@@ -1309,15 +1309,15 @@ const renderRateEditCell = React.useCallback((params: GridRenderEditCellParams) 
       field: "StartDate",
       headerName: "Start date",
       width: 140,
-      valueFormatter: (p: GridValueFormatterParams<BlotterRow, any>) => formatDateValue((p as any)?.value),
-      renderCell: (p: GridRenderCellParams<BlotterRow, any>) => <span>{formatDateValue((p as any)?.value)}</span>,
+      valueFormatter: (p: any) => formatDateValue(p?.value),
+      renderCell: (p: GridRenderCellParams<BlotterRow, any>) => <span>{formatDateValue(p?.value)}</span>,
     },
     {
       field: "TerminationDate",
       headerName: "Maturity",
       width: 140,
-      valueFormatter: (p: GridValueFormatterParams<BlotterRow, any>) => formatDateValue((p as any)?.value),
-      renderCell: (p: GridRenderCellParams<BlotterRow, any>) => <span>{formatDateValue((p as any)?.value)}</span>,
+      valueFormatter: (p: any) => formatDateValue(p?.value),
+      renderCell: (p: GridRenderCellParams<BlotterRow, any>) => <span>{formatDateValue(p?.value)}</span>,
     },
     {
       field: "FixedRate",
