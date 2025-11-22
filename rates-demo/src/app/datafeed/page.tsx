@@ -1038,7 +1038,8 @@ const renderRateEditCell = React.useCallback((params: GridRenderEditCellParams) 
     <div className="p-6 space-y-4">
       {/* Title + run toggle */}
       <div className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold">Datafeed</h1>
+        <div className="text-sm text-gray-400">Data feed</div>
+
         <div className="flex items-center gap-2 text-sm select-none">
           <span className={auto ? "text-gray-600" : "text-gray-200"}>paused</span>
           <div
@@ -1259,7 +1260,7 @@ const renderRateEditCell = React.useCallback((params: GridRenderEditCellParams) 
         </div>
       )}
       <div className="flex items-center justify-between">
-        <div className="text-sm text-gray-400">{calibErr ? <span className="text-red-500">{calibErr}</span> : calibReady ? "calibration ready" : "loading rateslib..."}</div>
+        <div className="text-sm text-gray-400">{calibErr ? <span className="text-red-500">{calibErr}</span> : calibReady ? "Calibration" : "loading rateslib..."}</div>
         <button onClick={recalibrate} disabled={!calibReady || calibrating} className="inline-flex items-center rounded-md border border-blue-500/40 bg-blue-500/10 px-3 py-1.5 text-blue-300 hover:bg-blue-500/20 focus:outline-none focus:ring-2 focus:ring-blue-500/50 disabled:opacity-50">
           {calibrating ? "recalibrating..." : "recalibrate"}
         </button>
@@ -1623,7 +1624,6 @@ const renderRateEditCell = React.useCallback((params: GridRenderEditCellParams) 
                       <span>{formatUsd(counterpartyLiveValue)}</span>
                     </div>
                   </div>
-                  <div className="text-xs text-gray-500">Pricing time: {formatDateValue(counterpartyRow.PricingTime)}</div>
                   <div className="flex items-center gap-2">
                     <button
                       onClick={() => setCounterpartyTab("cashflows")}
