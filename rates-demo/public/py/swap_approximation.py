@@ -58,3 +58,109 @@ def aproximate_counterparty_npv(npv: float, risk_df: DataFrame, md_changes_df:Da
     changes = md_changes_df.loc[term_cols, "Change"].to_numpy(dtype="float64")
     new_npv = npv + (risk*10_000 @ changes)
     return new_npv
+
+
+def aproximate_counterparty_cashflows(cf_df: DataFrame, cf_risk_df: DataFrame, md_changes_df:DataFrame) -> DataFrame:
+    if cf_df is None or cf_df.empty:
+        return cf_df
+
+    term_cols = md_changes_df.index.tolist()
+    if cf_risk_df is None or cf_risk_df.empty or not term_cols:
+        return cf_df
+
+    risk_df = cf_risk_df.copy()
+    # Ensure all tenor columns exist
+    for col in term_cols:
+        key = f'c_{col}'
+        if key not in risk_df.columns:
+            risk_df[key] = 0.0
+
+    key_col = None
+    for candidate in ["bucket", "Bucket", "PaymentDate"]:
+        if candidate in cf_df.columns and candidate in risk_df.columns:
+            key_col = candidate
+            break
+    if key_col is None:
+        return cf_df
+
+    risk_df = risk_df.rename(columns={"Bucket": "bucket"})
+    cf_df = cf_df.copy()
+    cf_df = cf_df.rename(columns={"Bucket": "bucket"})
+    key_col = "bucket" if key_col.lower() == "bucket" else key_col
+
+    # Align risk rows to cashflow rows
+    risk_df = risk_df.set_index(key_col)
+    ordered_risk = risk_df.reindex(cf_df[key_col]).fillna(0.0)
+    risk_matrix = ordered_risk[[f'c_{col}' for col in term_cols]].to_numpy(dtype="float64")
+    changes = md_changes_df.loc[term_cols, "Change"].to_numpy(dtype="float64")
+    deltas = (risk_matrix * 10_000) @ changes
+
+    # Base cashflow per row
+    base_cf = cf_df.get("TotalCashflow")
+    if base_cf is None:
+        base_cf = cf_df.get("cashflow")
+    if base_cf is None:
+        base_cf = cf_df.get("totalCashflow")
+    if base_cf is None:
+        base_cf = cf_df.get("baseCashflow")
+    if base_cf is None:
+        base_cf = 0.0
+    base_cf = pd.Series(base_cf).fillna(0.0).to_numpy(dtype="float64")
+
+    new_cf = base_cf + deltas
+    cf_df["TotalCashflow"] = new_cf
+    cf_df["cashflow"] = new_cf
+    return cf_df
+
+
+def log_cfs(cf_df: DataFrame, cf_risk_df: DataFrame, md_changes_df:DataFrame) -> DataFrame:
+    return cf_risk_df
+    #     return cf_df
+
+    # term_cols = md_changes_df.index.tolist()
+    # if cf_risk_df is None or cf_risk_df.empty or not term_cols:
+    #     return cf_df
+
+    # risk_df = cf_risk_df.copy()
+    # # Ensure all tenor columns exist
+    # for col in term_cols:
+    #     key = f'c_{col}'
+    #     if key not in risk_df.columns:
+    #         risk_df[key] = 0.0
+
+    # key_col = None
+    # for candidate in ["bucket", "Bucket", "PaymentDate"]:
+    #     if candidate in cf_df.columns and candidate in risk_df.columns:
+    #         key_col = candidate
+    #         break
+    # if key_col is None:
+    #     return cf_df
+
+    # risk_df = risk_df.rename(columns={"Bucket": "bucket"})
+    # cf_df = cf_df.copy()
+    # cf_df = cf_df.rename(columns={"Bucket": "bucket"})
+    # key_col = "bucket" if key_col.lower() == "bucket" else key_col
+
+    # # Align risk rows to cashflow rows
+    # risk_df = risk_df.set_index(key_col)
+    # ordered_risk = risk_df.reindex(cf_df[key_col]).fillna(0.0)
+    # risk_matrix = ordered_risk[[f'c_{col}' for col in term_cols]].to_numpy(dtype="float64")
+    # changes = md_changes_df.loc[term_cols, "Change"].to_numpy(dtype="float64")
+    # deltas = (risk_matrix * 10_000) @ changes
+
+    # # Base cashflow per row
+    # base_cf = cf_df.get("TotalCashflow")
+    # if base_cf is None:
+    #     base_cf = cf_df.get("cashflow")
+    # if base_cf is None:
+    #     base_cf = cf_df.get("totalCashflow")
+    # if base_cf is None:
+    #     base_cf = cf_df.get("baseCashflow")
+    # if base_cf is None:
+    #     base_cf = 0.0
+    # base_cf = pd.Series(base_cf).fillna(0.0).to_numpy(dtype="float64")
+
+    # new_cf = base_cf + deltas
+    # cf_df["TotalCashflow"] = new_cf
+    # cf_df["cashflow"] = new_cf
+    # return cf_df

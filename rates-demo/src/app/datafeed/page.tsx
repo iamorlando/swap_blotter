@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Scatter } from "recharts";
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Scatter, ComposedChart, Bar, Cell, ReferenceArea } from "recharts";
 import { DataGrid, GridColDef, GridPaginationModel, GridSortModel, GridRenderEditCellParams, GridRenderCellParams } from "@mui/x-data-grid";
 import { Slider, TextField } from "@mui/material";
 import VerticalSplit from "@/components/VerticalSplit";
@@ -145,6 +145,13 @@ function DatafeedPageInner() {
   const [counterpartySwapsLoading, setCounterpartySwapsLoading] = React.useState(false);
   const [counterpartyPagination, setCounterpartyPagination] = React.useState<GridPaginationModel>({ page: 0, pageSize: 10 });
   const [counterpartySort, setCounterpartySort] = React.useState<GridSortModel>([{ field: (generatedIdField as string) || "ID", sort: "asc" }]);
+  const [counterpartyCfBase, setCounterpartyCfBase] = React.useState<any[]>([]);
+  const [counterpartyCfLive, setCounterpartyCfLive] = React.useState<any[]>([]);
+  const counterpartyCfBaseRef = React.useRef<any[]>([]);
+  const counterpartyCfRiskRef = React.useRef<any[]>([]);
+  const counterpartyCfPrevRef = React.useRef<Map<string, number>>(new Map());
+  const counterpartyCfTypeCacheRef = React.useRef<Map<string, string>>(new Map());
+  const counterpartyCfLabelCacheRef = React.useRef<Map<string, string>>(new Map());
   const detailsRef = React.useRef<Worker | null>(null);
   const [detailsReady, setDetailsReady] = React.useState(false);
   const [modalRisk, setModalRisk] = React.useState<any | null>(null);
@@ -179,6 +186,10 @@ function DatafeedPageInner() {
   }, [modalFloatFixings?.index]);
   React.useEffect(() => {
     counterpartyApproxIdRef.current = counterpartyApproxKey;
+    // Reset caches when counterparty changes
+    counterpartyCfPrevRef.current = new Map();
+    counterpartyCfTypeCacheRef.current = new Map();
+    counterpartyCfLabelCacheRef.current = new Map();
   }, [counterpartyApproxKey]);
   React.useEffect(() => {
     if (!counterpartyId) {
@@ -188,6 +199,10 @@ function DatafeedPageInner() {
       setCounterpartyLoading(false);
       setCounterpartySwaps([]);
       setCounterpartySwapCount(0);
+      setCounterpartyCfBase([]);
+      setCounterpartyCfLive([]);
+      counterpartyCfBaseRef.current = [];
+      counterpartyCfRiskRef.current = [];
       return;
     }
     setCounterpartyTab("cashflows");
@@ -197,24 +212,50 @@ function DatafeedPageInner() {
     const params = new URLSearchParams({ id: counterpartyId, rowType: "Counterparty" });
     const load = async () => {
       try {
-        const [mainRes, riskRes] = await Promise.all([
+        const [mainRes, riskRes, cfRes] = await Promise.all([
           fetch(`/api/main-agg?${params.toString()}`, { cache: "no-store" }),
           fetch(`/api/risk-agg?${params.toString()}`, { cache: "no-store" }),
+          fetch(`/api/counterparty-cashflows?counterpartyId=${encodeURIComponent(counterpartyId)}`, { cache: "no-store" }),
         ]);
         if (!mainRes.ok) throw new Error(`main agg fetch failed: ${mainRes.status}`);
         if (!riskRes.ok) throw new Error(`risk agg fetch failed: ${riskRes.status}`);
-        const [mainJson, riskJson] = await Promise.all([mainRes.json(), riskRes.json()]);
+        if (!cfRes.ok) throw new Error(`cashflow fetch failed: ${cfRes.status}`);
+        const [mainJson, riskJson, cfJson] = await Promise.all([mainRes.json(), riskRes.json(), cfRes.json()]);
         if (cancelled) return;
         const mainRow = coerceRecord(mainJson?.row);
         const riskRow = coerceRecord(riskJson?.row);
+        const buckets = Array.isArray(cfJson?.buckets) ? cfJson.buckets : [];
         setCounterpartyRow(mainRow);
         setCounterpartyRisk(riskRow);
         setCounterpartyLiveNpv(mainRow?.NPV == null ? null : Number(mainRow.NPV));
+        const cfEnriched = buckets.map((b: any) => ({
+          ...b,
+          baseCashflow: b?.cashflow == null ? 0 : Number(b.cashflow),
+          TotalCashflow: b?.cashflow == null ? 0 : Number(b.cashflow),
+          TotalWeight: b?.weight == null ? 0 : Number(b.weight),
+          PaymentDate: b?.startDate,
+        }));
+        const riskRows = buckets.map((b: any) => {
+          const risk = b?.risk && typeof b.risk === "object" ? b.risk : {};
+          return {
+            bucket: b?.bucket,
+            PaymentDate: b?.startDate,
+            ...risk,
+          };
+        });
+        setCounterpartyCfBase(cfEnriched);
+        setCounterpartyCfLive(cfEnriched);
+        counterpartyCfBaseRef.current = cfEnriched;
+        counterpartyCfRiskRef.current = riskRows;
       } catch (err) {
         if (!cancelled) {
           setCounterpartyRow(null);
           setCounterpartyRisk(null);
           setCounterpartyLiveNpv(null);
+          setCounterpartyCfBase([]);
+          setCounterpartyCfLive([]);
+          counterpartyCfBaseRef.current = [];
+          counterpartyCfRiskRef.current = [];
         }
         console.error("[counterparty] fetch", err);
       } finally {
@@ -271,13 +312,19 @@ function DatafeedPageInner() {
     if (!counterpartyApproxKey) return;
     if (!counterpartyRow) return;
     const npvVal = counterpartyRow.NPV == null ? 0 : Number(counterpartyRow.NPV);
+    console.log("[approx sender] counterparty post", counterpartyApproxKey, {
+      cfLen: counterpartyCfBaseRef.current?.length || 0,
+      cfRiskLen: counterpartyCfRiskRef.current?.length || 0,
+    });
     approxRef.current?.postMessage({
       type: "counterparty",
       id: counterpartyApproxKey,
       npv: npvVal,
       risk: counterpartyRisk ? { ...counterpartyRisk, ID: counterpartyApproxKey } : null,
+      cashflows: counterpartyCfBaseRef.current,
+      cashflowRisk: counterpartyCfRiskRef.current,
     });
-  }, [approxReady, counterpartyApproxKey, counterpartyRow, counterpartyRisk]);
+  }, [approxReady, counterpartyApproxKey, counterpartyRow, counterpartyRisk, counterpartyCfBase]);
 
   React.useEffect(() => {
     if (counterpartyTab !== "swaps") return;
@@ -489,6 +536,35 @@ function DatafeedPageInner() {
         if (match && typeof match.npv === "number") {
           setCounterpartyLiveNpv(Number(match.npv));
         }
+      } else if (msg.type === "counterpartyCfApprox") {
+        const cpKey = counterpartyApproxIdRef.current;
+        if (!cpKey) return;
+        const rows = Array.isArray(msg.rows) ? msg.rows : [];
+        const match = rows.find((row: any) => String(row?.id ?? row?.ID) === cpKey);
+        const cfRows = Array.isArray(match?.rows) ? match.rows : [];
+        if (!cfRows.length) return;
+        setCounterpartyCfLive((prev) => {
+          const base = counterpartyCfBaseRef.current.length ? counterpartyCfBaseRef.current : prev;
+          const map = new Map<string, any>();
+          base.forEach((row: any) => {
+            const key = String(row.bucket ?? row.Bucket ?? row.label ?? row.startDate);
+            map.set(key, { ...row });
+          });
+          cfRows.forEach((row: any) => {
+            const key = String(row.bucket ?? row.Bucket ?? row.label ?? row.startDate ?? "");
+            if (!key) return;
+            const nextVal = row.TotalCashflow ?? row.cashflow ?? row.totalCashflow;
+            const existing = map.get(key);
+            if (existing) {
+              map.set(key, {
+                ...existing,
+                TotalCashflow: nextVal == null ? existing.TotalCashflow : Number(nextVal),
+                cashflow: nextVal == null ? existing.cashflow : Number(nextVal),
+              });
+            }
+          });
+          return Array.from(map.values()).sort((a, b) => (Number(a.startDays) || 0) - (Number(b.startDays) || 0));
+        });
       } else if (msg.type === "error") {
         console.error("[approx worker] error", msg.error);
         setApproxFatal(String(msg.error ?? "Unknown error"));
@@ -1293,6 +1369,142 @@ const renderRateEditCell = React.useCallback((params: GridRenderEditCellParams) 
   const cpArrow = cpDir === "up" ? "▲" : cpDir === "down" ? "▼" : "";
   const cpColor = cpDir === "up" ? "text-green-400" : cpDir === "down" ? "text-red-400" : "text-gray-200";
   const counterpartyRiskSeries = React.useMemo(() => buildRiskSeries(counterpartyRisk), [counterpartyRisk]);
+  const positiveBarColor = "#22c55e";
+  const negativeBarColor = "#ef4444";
+  const bucketBandPalette = React.useMemo(() => ({
+    day: "rgba(96, 165, 250, 0.12)",
+    week: "rgba(52, 211, 153, 0.12)",
+    month: "rgba(251, 191, 36, 0.12)",
+    year: "rgba(251, 146, 60, 0.12)",
+    long: "rgba(244, 114, 182, 0.12)",
+    other: "rgba(148, 163, 184, 0.12)",
+  }), []);
+  const counterpartyCfChart = React.useMemo(() => {
+    const bucketTypeForKey = (key: string, spanDays: number, startDays: number) => {
+      const lower = (key || "").toLowerCase();
+      if (lower.startsWith("day:")) return "day";
+      if (lower.startsWith("week:")) return "week";
+      if (lower.startsWith("month:")) return "month";
+      if (lower.startsWith("year:")) return "year";
+      if (lower.startsWith("5y:")) return "long";
+      if (spanDays <= 1) return "day";
+      if (spanDays <= 7) return "week";
+      if (spanDays <= 35) return "month";
+      if (spanDays <= 370) return "year";
+      if (startDays >= 365 * 5 || spanDays >= 365 * 5) return "long";
+      return "other";
+    };
+    const labelForBucket = (bucketType: string, startDays: number, spanDays: number) => {
+      const mid = startDays + spanDays / 2;
+      if (bucketType === "day") return `${Math.max(1, Math.round(mid))}d`;
+      if (bucketType === "week") return `${Math.max(1, Math.round(mid / 7))}w`;
+      if (bucketType === "month") return `${Math.max(1, Math.round(mid / 30))}m`;
+      const years = Math.max(1, Math.round(mid / 365));
+      return `${years}y`;
+    };
+    const rows = Array.isArray(counterpartyCfLive) ? counterpartyCfLive : [];
+    const bucketPriority: Record<string, number> = { day: 0, week: 1, month: 2, year: 3, long: 4, other: 5 };
+    const sorted = rows.slice().sort((a: any, b: any) => {
+      const aStart = Number(a.startDays ?? a.StartDays ?? 0) || 0;
+      const bStart = Number(b.startDays ?? b.StartDays ?? 0) || 0;
+      const aType = counterpartyCfTypeCacheRef.current.get(String(a.bucket ?? a.Bucket ?? "")) || bucketTypeForKey(String(a.bucket ?? a.Bucket ?? ""), Number(a.spanDays ?? a.SpanDays ?? 1) || 1, aStart);
+      const bType = counterpartyCfTypeCacheRef.current.get(String(b.bucket ?? b.Bucket ?? "")) || bucketTypeForKey(String(b.bucket ?? b.Bucket ?? ""), Number(b.spanDays ?? b.SpanDays ?? 1) || 1, bStart);
+      const aP = bucketPriority[aType] ?? bucketPriority.other;
+      const bP = bucketPriority[bType] ?? bucketPriority.other;
+      if (aP !== bP) return aP - bP;
+      return aStart - bStart;
+    });
+    const prevMap = counterpartyCfPrevRef.current;
+    const typeCache = counterpartyCfTypeCacheRef.current;
+    const labelCache = counterpartyCfLabelCacheRef.current;
+    return sorted.map((row: any, idx: number) => {
+      const startDays = Number(row.startDays ?? row.StartDays ?? 0) || 0;
+      const spanDays = Math.max(1, Number(row.spanDays ?? row.SpanDays ?? 1) || 1);
+      const midDays = startDays + spanDays / 2;
+      const val = Number(row.TotalCashflow ?? row.cashflow ?? row.totalCashflow ?? 0);
+      const bucketKey = String(row.bucket ?? row.Bucket ?? row.label ?? row.startDate ?? row.PaymentDate ?? "");
+      const bucketType = typeCache.get(bucketKey) || bucketTypeForKey(bucketKey, spanDays, startDays);
+      typeCache.set(bucketKey, bucketType);
+      const prevVal = prevMap.get(bucketKey);
+      const delta = prevVal == null ? "flat" : val > prevVal ? "up" : val < prevVal ? "down" : "flat";
+      const cachedLabel = labelCache.get(bucketKey);
+      const displayLabel = cachedLabel || labelForBucket(bucketType, startDays, spanDays);
+      if (!cachedLabel) labelCache.set(bucketKey, displayLabel);
+      return {
+        ...row,
+        bucketKey,
+        bucketType,
+        startDays,
+        spanDays,
+        midDays,
+        pos: idx,
+        value: val,
+        label: displayLabel,
+        delta,
+      };
+    });
+  }, [counterpartyCfLive]);
+  React.useEffect(() => {
+    const next = new Map<string, number>();
+    counterpartyCfChart.forEach((row) => {
+      next.set(row.bucketKey, Number(row.value) || 0);
+    });
+    counterpartyCfPrevRef.current = next;
+  }, [counterpartyCfChart]);
+  const cfMaxAbs = React.useMemo(() => {
+    return counterpartyCfChart.reduce((max, row) => {
+      const v = Math.abs(Number(row.value ?? 0));
+      return v > max ? v : max;
+    }, 0);
+  }, [counterpartyCfChart]);
+  const counterpartyCfAxis = React.useMemo(() => {
+    const rows = counterpartyCfChart;
+    if (!rows.length) return { ticks: [] as number[], format: (_v: number) => "", domain: [0, 1] as [number, number] };
+    const ticks = rows.map((row) => row.pos);
+    const labelMap = new Map<number, string>();
+    rows.forEach((row) => {
+      labelMap.set(row.pos, String(row.label ?? row.bucket ?? row.PaymentDate ?? ""));
+    });
+    const format = (v: number) => {
+      const key = Math.round(v);
+      return labelMap.get(key) ?? "";
+    };
+    return { ticks, format, domain: [-0.5, rows[rows.length - 1].pos + 0.5] as [number, number] };
+  }, [counterpartyCfChart]);
+  const counterpartyCfBands = React.useMemo(() => {
+    const rows = counterpartyCfChart;
+    const bands: Array<{ start: number; end: number; type: string; fill: string }> = [];
+    if (!rows.length) return bands;
+    const normalizeBandType = (t: string): keyof typeof bucketBandPalette => {
+      const key = t as keyof typeof bucketBandPalette;
+      return bucketBandPalette[key] ? key : "other";
+    };
+    let currentType = normalizeBandType(rows[0].bucketType || "other");
+    let start = rows[0].pos - 0.5;
+    let prevPos = rows[0].pos;
+    const pushBand = () => {
+      const fill = bucketBandPalette[currentType] ?? bucketBandPalette.other;
+      bands.push({
+        start,
+        end: prevPos + 0.5,
+        type: currentType,
+        fill,
+      });
+    };
+    rows.forEach((row, idx) => {
+      const type = normalizeBandType(row.bucketType || "other");
+      if (type !== currentType) {
+        pushBand();
+        currentType = type;
+        start = row.pos - 0.5;
+      }
+      prevPos = row.pos;
+      if (idx === rows.length - 1) {
+        pushBand();
+      }
+    });
+    return bands;
+  }, [bucketBandPalette, counterpartyCfChart]);
   const counterpartySwapColumns = React.useMemo<GridColDef<BlotterRow>[]>(() => [
     {
       field: "ID",
@@ -1434,8 +1646,78 @@ const renderRateEditCell = React.useCallback((params: GridRenderEditCellParams) 
                   </div>
                   <div className="border border-gray-800 rounded-md bg-gray-900 p-3 h-[360px] flex flex-col gap-3">
                     {counterpartyTab === "cashflows" ? (
-                      <div className="flex-1 border border-dashed border-gray-700 rounded-md bg-gray-950 flex items-center justify-center text-gray-500">
-                        Cashflows content coming soon.
+                      <div className="flex-1 min-h-0 flex flex-col gap-2">
+                        <div className="text-xs uppercase tracking-wide text-gray-500">Expected cashflows</div>
+                        <div className="flex-1 min-h-0 rounded-md border border-gray-800 bg-gray-950/60 p-3">
+                          {counterpartyCfChart.length ? (
+                            <ResponsiveContainer width="100%" height="100%">
+                              <ComposedChart data={counterpartyCfChart} margin={{ top: 10, right: 16, bottom: 0, left: 0 }}>
+                                <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
+                                {counterpartyCfBands.map((band, idx) => (
+                                  <ReferenceArea
+                                    key={`${band.start}-${band.end}-${idx}`}
+                                    x1={band.start}
+                                    x2={band.end}
+                                    y1={cfMaxAbs ? -cfMaxAbs * 1.2 : -1}
+                                    y2={cfMaxAbs ? cfMaxAbs * 1.2 : 1}
+                                    fill={band.fill}
+                                    stroke="none"
+                                  />
+                                ))}
+                                <XAxis
+                                  type="number"
+                                  dataKey="pos"
+                                  domain={counterpartyCfAxis.domain}
+                                  tickFormatter={counterpartyCfAxis.format}
+                                  ticks={counterpartyCfAxis.ticks}
+                                  interval={0}
+                                  height={70}
+                                  tickMargin={12}
+                                  angle={0}
+                                  tick={{ fill: "#9ca3af", fontSize: 10 }}
+                                  axisLine={{ stroke: "#374151" }}
+                                  tickLine={{ stroke: "#374151" }}
+                                />
+                                <YAxis
+                                  tick={{ fill: "#9ca3af", fontSize: 11 }}
+                                  axisLine={{ stroke: "#374151" }}
+                                  tickLine={{ stroke: "#374151" }}
+                                  tickFormatter={(v: number) => formatUsd(v).replace("$ ", "")}
+                                  domain={[cfMaxAbs ? -cfMaxAbs * 1.2 : -1, cfMaxAbs ? cfMaxAbs * 1.2 : 1]}
+                                />
+                                <Tooltip
+                                  cursor={{ fill: "#111827", fillOpacity: 0.1 }}
+                                  contentStyle={{ background: "#0b1220", border: "1px solid #374151", color: "#e5e7eb" }}
+                                  itemStyle={{ color: "#e5e7eb" }}
+                                  labelStyle={{ color: "#e5e7eb" }}
+                                  formatter={(value: any) => formatUsd(Number(value))}
+                                  labelFormatter={(v: any) => {
+                                    const match = counterpartyCfChart.find((row) => Math.abs(row.pos - Number(v)) < 0.25);
+                                    return match?.label ?? String(v);
+                                  }}
+                                />
+                                <Bar
+                                  dataKey="value"
+                                  radius={[4, 4, 0, 0]}
+                                  isAnimationActive={true}
+                                  animationDuration={350}
+                                  animationEasing="ease-out"
+                                >
+                                  {counterpartyCfChart.map((entry, idx) => (
+                                    <Cell
+                                      key={idx}
+                                      fill={entry.value >= 0 ? positiveBarColor : negativeBarColor}
+                                      stroke="#0f172a"
+                                      fillOpacity={0.9}
+                                    />
+                                  ))}
+                                </Bar>
+                              </ComposedChart>
+                            </ResponsiveContainer>
+                          ) : (
+                            <div className="h-full flex items-center justify-center text-gray-500 text-sm">No cashflows available.</div>
+                          )}
+                        </div>
                       </div>
                     ) : counterpartyTab === "swaps" ? (
                       <>

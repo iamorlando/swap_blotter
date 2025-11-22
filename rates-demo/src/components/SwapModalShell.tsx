@@ -374,6 +374,10 @@ export function SwapModalShell({
                   <div>Floating leg cashflows</div>
                   <CopyTableButton getText={() => tableToTsv(floatFlowColumns, floatRowsForDisplay)} />
                 </div>
+                <div className="flex items-center gap-2 px-3 py-2 text-[11px] text-amber-900 dark:text-amber-100 bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/40 rounded-md">
+                  <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-amber-200 dark:bg-amber-500/30 text-amber-800 dark:text-amber-100 text-[10px] font-semibold">i</span>
+                  <span className="text-amber-900 dark:text-amber-100">Click a floating cashflow row to view its fixing risk.</span>
+                </div>
                 <div className="text-sm text-gray-200 flex items-center gap-2">
                   <span className="text-gray-400">Leg NPV</span>
                   {renderTicker("", floatNPVBase, totalFloatNPV, (v) => formatFlowValue(v), true)}
