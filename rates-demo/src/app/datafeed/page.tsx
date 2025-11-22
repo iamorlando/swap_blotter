@@ -1475,19 +1475,24 @@ const renderRateEditCell = React.useCallback((params: GridRenderEditCellParams) 
     const rows = counterpartyCfChart;
     const bands: Array<{ start: number; end: number; type: string; fill: string }> = [];
     if (!rows.length) return bands;
-    let currentType = rows[0].bucketType || "other";
+    const normalizeBandType = (t: string): keyof typeof bucketBandPalette => {
+      const key = t as keyof typeof bucketBandPalette;
+      return bucketBandPalette[key] ? key : "other";
+    };
+    let currentType = normalizeBandType(rows[0].bucketType || "other");
     let start = rows[0].pos - 0.5;
     let prevPos = rows[0].pos;
     const pushBand = () => {
+      const fill = bucketBandPalette[currentType] ?? bucketBandPalette.other;
       bands.push({
         start,
         end: prevPos + 0.5,
         type: currentType,
-        fill: bucketBandPalette[currentType] || bucketBandPalette.other,
+        fill,
       });
     };
     rows.forEach((row, idx) => {
-      const type = row.bucketType || "other";
+      const type = normalizeBandType(row.bucketType || "other");
       if (type !== currentType) {
         pushBand();
         currentType = type;
