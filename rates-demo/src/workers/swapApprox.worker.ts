@@ -23,6 +23,7 @@ let pyodide: PyodideModule | null = null;
 let mdHelper: ((rows: PyProxy) => PyProxy) | null = null;
 let approxHelper: ((swaps: PyProxy, risk: PyProxy, md: PyProxy) => PyProxy) | null = null;
 let approxCounterpartyHelper: ((npv: number, risk: PyProxy, md: PyProxy) => any) | null = null;
+let logHelper:  ((cf: PyProxy, cfRisk: PyProxy, md: PyProxy) => PyProxy) | null = null;
 let approxCounterpartyCfHelper: ((cf: PyProxy, cfRisk: PyProxy, md: PyProxy) => PyProxy) | null = null;
 let setBaseCurveFn: ((rows: PyProxy) => void) | null = null;
 let initialized = false;
@@ -57,7 +58,7 @@ async function init(baseUrl: string, datafeedUrl: string, approxUrl: string) {
       + `m_swap = types.ModuleType('py.swap_approximation'); m_swap.__package__='py'\n`
       + `exec(compile(${JSON.stringify(approxCode)}, 'py/swap_approximation.py', 'exec'), m_swap.__dict__)\n`
       + `sys.modules['py.swap_approximation'] = m_swap\n`
-      + `from py.swap_approximation import get_md_changes, aproximate_swap_quotes, aproximate_counterparty_npv, aproximate_counterparty_cashflows\n`
+      + `from py.swap_approximation import get_md_changes, aproximate_swap_quotes, aproximate_counterparty_npv, aproximate_counterparty_cashflows, log_cfs\n`
       + `base_curve_df = None\n`
       + `def __set_base_curve(rows):\n`
       + `    global base_curve_df\n`
@@ -110,12 +111,20 @@ async function init(baseUrl: string, datafeedUrl: string, approxUrl: string) {
       + `    if 'Term' in md_df.columns:\n`
       + `        md_df = md_df.set_index('Term')\n`
       + `    return aproximate_counterparty_cashflows(cf_df, cf_risk_df, md_df).to_dict(orient='records')\n`;
+      + `def logcfstuff(cf_rows, cf_risk_rows, md_changes_rows):\n`
+      + `    cf_df = pd.DataFrame(cf_rows)\n`
+      + `    cf_risk_df = pd.DataFrame(cf_risk_rows)\n`
+      + `    md_df = pd.DataFrame(md_changes_rows)\n`
+      + `    if 'Term' in md_df.columns:\n`
+      + `        md_df = md_df.set_index('Term')\n`
+      + `     return log_cfs(cf_df, cf_risk_df, md_df).to_dict(orient='records')\n`;
 
     loaded.runPython(bootstrap);
     mdHelper = loaded.globals.get("__md_from_market") as typeof mdHelper;
     approxHelper = loaded.globals.get("__approx_swaps") as typeof approxHelper;
     approxCounterpartyHelper = loaded.globals.get("__approx_counterparty") as typeof approxCounterpartyHelper;
     approxCounterpartyCfHelper = loaded.globals.get("__approx_counterparty_cf") as typeof approxCounterpartyCfHelper;
+    logHelper = loaded.globals.get("logcfstuff") as typeof logHelper;
     setBaseCurveFn = loaded.globals.get("__set_base_curve") as typeof setBaseCurveFn;
 
     // Fetch base curve once from API to seed original market data.
@@ -267,6 +276,16 @@ function approximateCounterparties() {
           cfRiskPy = py.toPy(value.cashflowRisk);
           cfRes = approxCounterpartyCfHelper(cfPy, cfRiskPy, mdPy);
           const arr = cfRes?.toJs?.({ create_proxies: false }) as Record<string, any>[] | undefined;
+          const plain = arr ? (JSON.parse(JSON.stringify(arr)) as Record<string, any>[]) : [];
+          cfResults.push({ id: key, rows: plain });
+        }
+        if (logHelper && value.cashflows && value.cashflowRisk) {
+          cfPy = py.toPy(value.cashflows);
+          cfRiskPy = py.toPy(value.cashflowRisk);
+          cfRes = logHelper(cfPy, cfRiskPy, mdPy);
+          console.log("logging cf changes for counterparty", cfRes);
+          const arr = cfRes?.toJs?.({ create_proxies: false }) as Record<string, any>[] | undefined;
+          console.log("logged cf changes for counterparty", key, arr);
           const plain = arr ? (JSON.parse(JSON.stringify(arr)) as Record<string, any>[]) : [];
           cfResults.push({ id: key, rows: plain });
         }

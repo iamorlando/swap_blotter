@@ -149,6 +149,7 @@ function DatafeedPageInner() {
   const [counterpartyCfLive, setCounterpartyCfLive] = React.useState<any[]>([]);
   const counterpartyCfBaseRef = React.useRef<any[]>([]);
   const counterpartyCfRiskRef = React.useRef<any[]>([]);
+  const counterpartyCfPrevRef = React.useRef<Map<string, number>>(new Map());
   const detailsRef = React.useRef<Worker | null>(null);
   const [detailsReady, setDetailsReady] = React.useState(false);
   const [modalRisk, setModalRisk] = React.useState<any | null>(null);
@@ -1384,6 +1385,7 @@ const renderRateEditCell = React.useCallback((params: GridRenderEditCellParams) 
       return "other";
     };
     const rows = Array.isArray(counterpartyCfLive) ? counterpartyCfLive : [];
+    const prevMap = counterpartyCfPrevRef.current;
     return rows.map((row: any, idx: number) => {
       const startDays = Number(row.startDays ?? row.StartDays ?? 0) || 0;
       const spanDays = Math.max(1, Number(row.spanDays ?? row.SpanDays ?? 1) || 1);
@@ -1391,8 +1393,11 @@ const renderRateEditCell = React.useCallback((params: GridRenderEditCellParams) 
       const val = Number(row.TotalCashflow ?? row.cashflow ?? row.totalCashflow ?? 0);
       const bucketKey = String(row.bucket ?? row.Bucket ?? row.label ?? row.startDate ?? row.PaymentDate ?? "");
       const bucketType = bucketTypeForKey(bucketKey, spanDays);
+      const prevVal = prevMap.get(bucketKey);
+      const delta = prevVal == null ? "flat" : val > prevVal ? "up" : val < prevVal ? "down" : "flat";
       return {
         ...row,
+        bucketKey,
         bucketType,
         startDays,
         spanDays,
@@ -1400,9 +1405,17 @@ const renderRateEditCell = React.useCallback((params: GridRenderEditCellParams) 
         pos: idx,
         value: val,
         label: row.label ?? row.bucket ?? row.startDate ?? row.PaymentDate,
+        delta,
       };
     });
   }, [counterpartyCfLive]);
+  React.useEffect(() => {
+    const next = new Map<string, number>();
+    counterpartyCfChart.forEach((row) => {
+      next.set(row.bucketKey, Number(row.value) || 0);
+    });
+    counterpartyCfPrevRef.current = next;
+  }, [counterpartyCfChart]);
   const cfMaxAbs = React.useMemo(() => {
     return counterpartyCfChart.reduce((max, row) => {
       const v = Math.abs(Number(row.value ?? 0));
@@ -1635,6 +1648,8 @@ const renderRateEditCell = React.useCallback((params: GridRenderEditCellParams) 
                                 <Tooltip
                                   cursor={{ fill: "#111827", fillOpacity: 0.1 }}
                                   contentStyle={{ background: "#0b1220", border: "1px solid #374151", color: "#e5e7eb" }}
+                                  itemStyle={{ color: "#e5e7eb" }}
+                                  labelStyle={{ color: "#e5e7eb" }}
                                   formatter={(value: any) => formatUsd(Number(value))}
                                   labelFormatter={(v: any) => {
                                     const match = counterpartyCfChart.find((row) => Math.abs(row.pos - Number(v)) < 0.25);
@@ -1648,6 +1663,7 @@ const renderRateEditCell = React.useCallback((params: GridRenderEditCellParams) 
                                       fill={bucketPalette[entry.bucketType] || bucketPalette.other}
                                       stroke="#0f172a"
                                       fillOpacity={entry.value >= 0 ? 0.95 : 0.45}
+                                      className={entry.delta === "up" ? "flash-up" : entry.delta === "down" ? "flash-down" : ""}
                                     />
                                   ))}
                                 </Bar>
