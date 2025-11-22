@@ -1691,7 +1691,13 @@ const renderRateEditCell = React.useCallback((params: GridRenderEditCellParams) 
                                     return match?.label ?? String(v);
                                   }}
                                 />
-                                <Bar dataKey="value" radius={[4, 4, 0, 0]} isAnimationActive={false}>
+                                <Bar
+                                  dataKey="value"
+                                  radius={[4, 4, 0, 0]}
+                                  isAnimationActive={true}
+                                  animationDuration={350}
+                                  animationEasing="ease-out"
+                                >
                                   {counterpartyCfChart.map((entry, idx) => (
                                     <Cell
                                       key={idx}
