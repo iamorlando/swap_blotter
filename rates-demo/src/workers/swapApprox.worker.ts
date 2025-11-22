@@ -110,14 +110,14 @@ async function init(baseUrl: string, datafeedUrl: string, approxUrl: string) {
       + `    md_df = pd.DataFrame(md_changes_rows)\n`
       + `    if 'Term' in md_df.columns:\n`
       + `        md_df = md_df.set_index('Term')\n`
-      + `    return aproximate_counterparty_cashflows(cf_df, cf_risk_df, md_df).to_dict(orient='records')\n`;
+      + `    return aproximate_counterparty_cashflows(cf_df, cf_risk_df, md_df).to_dict(orient='records')\n`
       + `def logcfstuff(cf_rows, cf_risk_rows, md_changes_rows):\n`
       + `    cf_df = pd.DataFrame(cf_rows)\n`
       + `    cf_risk_df = pd.DataFrame(cf_risk_rows)\n`
       + `    md_df = pd.DataFrame(md_changes_rows)\n`
       + `    if 'Term' in md_df.columns:\n`
       + `        md_df = md_df.set_index('Term')\n`
-      + `     return log_cfs(cf_df, cf_risk_df, md_df).to_dict(orient='records')\n`;
+      + `    return log_cfs(cf_df, cf_risk_df, md_df).to_dict(orient='records')\n`;
 
     loaded.runPython(bootstrap);
     mdHelper = loaded.globals.get("__md_from_market") as typeof mdHelper;
@@ -125,6 +125,13 @@ async function init(baseUrl: string, datafeedUrl: string, approxUrl: string) {
     approxCounterpartyHelper = loaded.globals.get("__approx_counterparty") as typeof approxCounterpartyHelper;
     approxCounterpartyCfHelper = loaded.globals.get("__approx_counterparty_cf") as typeof approxCounterpartyCfHelper;
     logHelper = loaded.globals.get("logcfstuff") as typeof logHelper;
+    console.log("[approx worker] helpers ready", {
+      mdHelper: !!mdHelper,
+      approxHelper: !!approxHelper,
+      approxCounterpartyHelper: !!approxCounterpartyHelper,
+      approxCounterpartyCfHelper: !!approxCounterpartyCfHelper,
+      logHelper: !!logHelper,
+    });
     setBaseCurveFn = loaded.globals.get("__set_base_curve") as typeof setBaseCurveFn;
 
     // Fetch base curve once from API to seed original market data.
@@ -206,11 +213,21 @@ function handleCounterparty(payload: { id: string; npv: number; risk?: RiskRow |
     counterpartyMap.delete(payload.id);
     return;
   }
+  const existing = counterpartyMap.get(payload.id) || null;
+  const nextCashflows = payload.cashflows ?? existing?.cashflows ?? null;
+  const nextCfRisk = payload.cashflowRisk ?? existing?.cashflowRisk ?? null;
+  console.log("[approx worker] counterparty upsert", payload.id, {
+    incomingCfLen: payload.cashflows?.length || 0,
+    incomingCfRiskLen: payload.cashflowRisk?.length || 0,
+    hasRisk: !!payload.risk,
+    cfLen: nextCashflows?.length || 0,
+    cfRiskLen: nextCfRisk?.length || 0,
+  });
   counterpartyMap.set(payload.id, {
-    npv: Number(payload.npv ?? 0),
-    risk: payload.risk || null,
-    cashflows: payload.cashflows || null,
-    cashflowRisk: payload.cashflowRisk || null,
+    npv: Number(payload.npv ?? existing?.npv ?? 0),
+    risk: payload.risk ?? existing?.risk ?? null,
+    cashflows: nextCashflows,
+    cashflowRisk: nextCfRisk,
   });
   tryApproximate();
 }
@@ -246,6 +263,7 @@ function tryApproximate() {
 }
 
 function approximateCounterparties() {
+  
   if (!approxCounterpartyHelper || !counterpartyMap.size) return;
   if (!latestMdChanges || !latestMdChanges.length) return;
   const py = pyodide as PyodideModule;
@@ -254,6 +272,12 @@ function approximateCounterparties() {
     mdPy = py.toPy(latestMdChanges);
     const results: Array<{ id: string; npv: number }> = [];
     const cfResults: Array<{ id: string; rows: Record<string, any>[] }> = [];
+    console.log("[approx worker] approximateCounterparties start", {
+      mapSize: counterpartyMap.size,
+      mdLen: latestMdChanges?.length || 0,
+      hasCfHelper: !!approxCounterpartyCfHelper,
+      hasLogHelper: !!logHelper,
+    });
     counterpartyMap.forEach((value, key) => {
       let riskPy: PyProxy | null = null;
       let cfPy: PyProxy | null = null;
@@ -271,23 +295,35 @@ function approximateCounterparties() {
         const npv = typeof res === "number" ? res : Number((res as any)?.toJs?.({ create_proxies: false }));
         results.push({ id: key, npv });
 
-        if (approxCounterpartyCfHelper && value.cashflows && value.cashflowRisk) {
+        if (approxCounterpartyCfHelper && value.cashflows) {
+          const cfRiskRows = value.cashflowRisk || [];
+          console.log("[approx worker] cf approx", key, {
+            cfLen: value.cashflows.length,
+            cfRiskLen: cfRiskRows.length,
+          });
           cfPy = py.toPy(value.cashflows);
-          cfRiskPy = py.toPy(value.cashflowRisk);
+          cfRiskPy = py.toPy(cfRiskRows);
           cfRes = approxCounterpartyCfHelper(cfPy, cfRiskPy, mdPy);
           const arr = cfRes?.toJs?.({ create_proxies: false }) as Record<string, any>[] | undefined;
           const plain = arr ? (JSON.parse(JSON.stringify(arr)) as Record<string, any>[]) : [];
           cfResults.push({ id: key, rows: plain });
-        }
-        if (logHelper && value.cashflows && value.cashflowRisk) {
-          cfPy = py.toPy(value.cashflows);
-          cfRiskPy = py.toPy(value.cashflowRisk);
-          cfRes = logHelper(cfPy, cfRiskPy, mdPy);
-          console.log("logging cf changes for counterparty", cfRes);
-          const arr = cfRes?.toJs?.({ create_proxies: false }) as Record<string, any>[] | undefined;
-          console.log("logged cf changes for counterparty", key, arr);
-          const plain = arr ? (JSON.parse(JSON.stringify(arr)) as Record<string, any>[]) : [];
-          cfResults.push({ id: key, rows: plain });
+          if (logHelper) {
+            try {
+              const logRes = logHelper(cfPy, cfRiskPy, mdPy);
+              const logArr = logRes?.toJs?.({ create_proxies: false }) as Record<string, any>[] | undefined;
+              console.log("[cf log]", key, logArr);
+              if (logRes && typeof logRes.destroy === "function") logRes.destroy();
+            } catch (err) {
+              ctx.postMessage({ type: "error", error: `cf log failed for ${key}: ${String(err)}` });
+            }
+          }
+        } else {
+          console.log("[approx worker] cf approx skipped", key, {
+            hasHelper: !!approxCounterpartyCfHelper,
+            hasCashflows: !!value.cashflows,
+            cfLen: value.cashflows?.length || 0,
+            cfRiskLen: value.cashflowRisk?.length || 0,
+          });
         }
       } catch (e) {
         ctx.postMessage({ type: "error", error: String(e) });
@@ -302,7 +338,10 @@ function approximateCounterparties() {
       ctx.postMessage({ type: "counterpartyApprox", rows: results });
     }
     if (cfResults.length) {
+      console.log("[approx worker] posting cf results", cfResults.map((r) => ({ id: r.id, rows: r.rows.length })));
       ctx.postMessage({ type: "counterpartyCfApprox", rows: cfResults });
+    } else {
+      console.log("[approx worker] cf results empty");
     }
   } catch (e) {
     ctx.postMessage({ type: "error", error: String(e) });
@@ -327,6 +366,8 @@ ctx.onmessage = async (ev: MessageEvent) => {
       id: String(msg.id ?? ""),
       npv: Number(msg.npv ?? 0),
       risk: msg.risk as RiskRow | null,
+      cashflows: msg.cashflows as Record<string, any>[] | null,
+      cashflowRisk: msg.cashflowRisk as Record<string, any>[] | null,
       remove: !!msg.remove,
     });
   }

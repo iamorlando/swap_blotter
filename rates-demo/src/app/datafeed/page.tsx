@@ -150,6 +150,8 @@ function DatafeedPageInner() {
   const counterpartyCfBaseRef = React.useRef<any[]>([]);
   const counterpartyCfRiskRef = React.useRef<any[]>([]);
   const counterpartyCfPrevRef = React.useRef<Map<string, number>>(new Map());
+  const counterpartyCfTypeCacheRef = React.useRef<Map<string, string>>(new Map());
+  const counterpartyCfLabelCacheRef = React.useRef<Map<string, string>>(new Map());
   const detailsRef = React.useRef<Worker | null>(null);
   const [detailsReady, setDetailsReady] = React.useState(false);
   const [modalRisk, setModalRisk] = React.useState<any | null>(null);
@@ -184,6 +186,10 @@ function DatafeedPageInner() {
   }, [modalFloatFixings?.index]);
   React.useEffect(() => {
     counterpartyApproxIdRef.current = counterpartyApproxKey;
+    // Reset caches when counterparty changes
+    counterpartyCfPrevRef.current = new Map();
+    counterpartyCfTypeCacheRef.current = new Map();
+    counterpartyCfLabelCacheRef.current = new Map();
   }, [counterpartyApproxKey]);
   React.useEffect(() => {
     if (!counterpartyId) {
@@ -306,6 +312,10 @@ function DatafeedPageInner() {
     if (!counterpartyApproxKey) return;
     if (!counterpartyRow) return;
     const npvVal = counterpartyRow.NPV == null ? 0 : Number(counterpartyRow.NPV);
+    console.log("[approx sender] counterparty post", counterpartyApproxKey, {
+      cfLen: counterpartyCfBaseRef.current?.length || 0,
+      cfRiskLen: counterpartyCfRiskRef.current?.length || 0,
+    });
     approxRef.current?.postMessage({
       type: "counterparty",
       id: counterpartyApproxKey,
@@ -1359,14 +1369,8 @@ const renderRateEditCell = React.useCallback((params: GridRenderEditCellParams) 
   const cpArrow = cpDir === "up" ? "▲" : cpDir === "down" ? "▼" : "";
   const cpColor = cpDir === "up" ? "text-green-400" : cpDir === "down" ? "text-red-400" : "text-gray-200";
   const counterpartyRiskSeries = React.useMemo(() => buildRiskSeries(counterpartyRisk), [counterpartyRisk]);
-  const bucketPalette = React.useMemo(() => ({
-    day: "#60a5fa",
-    week: "#34d399",
-    month: "#fbbf24",
-    year: "#fb923c",
-    long: "#f472b6",
-    other: "#94a3b8",
-  }), []);
+  const positiveBarColor = "#22c55e";
+  const negativeBarColor = "#ef4444";
   const bucketBandPalette = React.useMemo(() => ({
     day: "rgba(96, 165, 250, 0.12)",
     week: "rgba(52, 211, 153, 0.12)",
@@ -1376,25 +1380,56 @@ const renderRateEditCell = React.useCallback((params: GridRenderEditCellParams) 
     other: "rgba(148, 163, 184, 0.12)",
   }), []);
   const counterpartyCfChart = React.useMemo(() => {
-    const bucketTypeForKey = (key: string, spanDays: number) => {
-      if (key.startsWith("day:")) return "day";
-      if (key.startsWith("week:")) return "week";
-      if (key.startsWith("month:")) return "month";
-      if (key.startsWith("year:")) return "year";
-      if (key.startsWith("5y:") || spanDays >= 365 * 5) return "long";
+    const bucketTypeForKey = (key: string, spanDays: number, startDays: number) => {
+      const lower = (key || "").toLowerCase();
+      if (lower.startsWith("day:")) return "day";
+      if (lower.startsWith("week:")) return "week";
+      if (lower.startsWith("month:")) return "month";
+      if (lower.startsWith("year:")) return "year";
+      if (lower.startsWith("5y:")) return "long";
+      if (spanDays <= 1) return "day";
+      if (spanDays <= 7) return "week";
+      if (spanDays <= 35) return "month";
+      if (spanDays <= 370) return "year";
+      if (startDays >= 365 * 5 || spanDays >= 365 * 5) return "long";
       return "other";
     };
+    const labelForBucket = (bucketType: string, startDays: number, spanDays: number) => {
+      const mid = startDays + spanDays / 2;
+      if (bucketType === "day") return `${Math.max(1, Math.round(mid))}d`;
+      if (bucketType === "week") return `${Math.max(1, Math.round(mid / 7))}w`;
+      if (bucketType === "month") return `${Math.max(1, Math.round(mid / 30))}m`;
+      const years = Math.max(1, Math.round(mid / 365));
+      return `${years}y`;
+    };
     const rows = Array.isArray(counterpartyCfLive) ? counterpartyCfLive : [];
+    const bucketPriority: Record<string, number> = { day: 0, week: 1, month: 2, year: 3, long: 4, other: 5 };
+    const sorted = rows.slice().sort((a: any, b: any) => {
+      const aStart = Number(a.startDays ?? a.StartDays ?? 0) || 0;
+      const bStart = Number(b.startDays ?? b.StartDays ?? 0) || 0;
+      const aType = counterpartyCfTypeCacheRef.current.get(String(a.bucket ?? a.Bucket ?? "")) || bucketTypeForKey(String(a.bucket ?? a.Bucket ?? ""), Number(a.spanDays ?? a.SpanDays ?? 1) || 1, aStart);
+      const bType = counterpartyCfTypeCacheRef.current.get(String(b.bucket ?? b.Bucket ?? "")) || bucketTypeForKey(String(b.bucket ?? b.Bucket ?? ""), Number(b.spanDays ?? b.SpanDays ?? 1) || 1, bStart);
+      const aP = bucketPriority[aType] ?? bucketPriority.other;
+      const bP = bucketPriority[bType] ?? bucketPriority.other;
+      if (aP !== bP) return aP - bP;
+      return aStart - bStart;
+    });
     const prevMap = counterpartyCfPrevRef.current;
-    return rows.map((row: any, idx: number) => {
+    const typeCache = counterpartyCfTypeCacheRef.current;
+    const labelCache = counterpartyCfLabelCacheRef.current;
+    return sorted.map((row: any, idx: number) => {
       const startDays = Number(row.startDays ?? row.StartDays ?? 0) || 0;
       const spanDays = Math.max(1, Number(row.spanDays ?? row.SpanDays ?? 1) || 1);
       const midDays = startDays + spanDays / 2;
       const val = Number(row.TotalCashflow ?? row.cashflow ?? row.totalCashflow ?? 0);
       const bucketKey = String(row.bucket ?? row.Bucket ?? row.label ?? row.startDate ?? row.PaymentDate ?? "");
-      const bucketType = bucketTypeForKey(bucketKey, spanDays);
+      const bucketType = typeCache.get(bucketKey) || bucketTypeForKey(bucketKey, spanDays, startDays);
+      typeCache.set(bucketKey, bucketType);
       const prevVal = prevMap.get(bucketKey);
       const delta = prevVal == null ? "flat" : val > prevVal ? "up" : val < prevVal ? "down" : "flat";
+      const cachedLabel = labelCache.get(bucketKey);
+      const displayLabel = cachedLabel || labelForBucket(bucketType, startDays, spanDays);
+      if (!cachedLabel) labelCache.set(bucketKey, displayLabel);
       return {
         ...row,
         bucketKey,
@@ -1404,7 +1439,7 @@ const renderRateEditCell = React.useCallback((params: GridRenderEditCellParams) 
         midDays,
         pos: idx,
         value: val,
-        label: row.label ?? row.bucket ?? row.startDate ?? row.PaymentDate,
+        label: displayLabel,
         delta,
       };
     });
@@ -1631,9 +1666,9 @@ const renderRateEditCell = React.useCallback((params: GridRenderEditCellParams) 
                                   tickFormatter={counterpartyCfAxis.format}
                                   ticks={counterpartyCfAxis.ticks}
                                   interval={0}
-                                  height={64}
-                                  tickMargin={10}
-                                  angle={-35}
+                                  height={70}
+                                  tickMargin={12}
+                                  angle={0}
                                   tick={{ fill: "#9ca3af", fontSize: 10 }}
                                   axisLine={{ stroke: "#374151" }}
                                   tickLine={{ stroke: "#374151" }}
@@ -1660,10 +1695,9 @@ const renderRateEditCell = React.useCallback((params: GridRenderEditCellParams) 
                                   {counterpartyCfChart.map((entry, idx) => (
                                     <Cell
                                       key={idx}
-                                      fill={bucketPalette[entry.bucketType] || bucketPalette.other}
+                                      fill={entry.value >= 0 ? positiveBarColor : negativeBarColor}
                                       stroke="#0f172a"
-                                      fillOpacity={entry.value >= 0 ? 0.95 : 0.45}
-                                      className={entry.delta === "up" ? "flash-up" : entry.delta === "down" ? "flash-down" : ""}
+                                      fillOpacity={0.9}
                                     />
                                   ))}
                                 </Bar>
