@@ -245,3 +245,58 @@ body {
 :root[data-theme="light"] .btn-blue:disabled {
   opacity: 0.55;
 }
+
+/* ThemeBar specific tweaks for light mode */
+:root[data-theme="light"] .bg-gray-900\/85 {
+  background-color: #f4f6f1 !important; /* top bar background in light mode */
+}
+
+:root[data-theme="light"] .border-gray-800 {
+  border-color: #c7d2c0 !important; /* matches your other light borders */
+}
+
+:root[data-theme="light"] .bg-gray-800\/90 {
+  background-color: #e2e8dd !important; /* pill background in light mode */
+}
+
+:root[data-theme="light"] .border-gray-700 {
+  border-color: #c7d2c0 !important;
+}
+
+:root[data-theme="light"] .text-gray-200 {
+  color: #1d261b !important; /* icon color in light mode */
+}
+
+/* Dark theme: soften the yellow toggle highlight */
+:root:not([data-theme="light"]) .bg-amber-200\/80 {
+  /* darker, less neon than the default amber-200/80 */
+  background-color: rgba(217, 119, 6, 0.75); /* roughly amber-600 at ~75% */
+}
+
+/* Dark theme DataGrid header – use dark grid vars */
+:root:not([data-theme="light"]) .MuiDataGrid-root {
+  color: var(--grid-text-color);
+}
+
+/* Header bar in dark */
+:root:not([data-theme="light"]) .MuiDataGrid-columnHeaders,
+:root:not([data-theme="light"]) .MuiDataGrid-columnHeadersInner {
+  background-color: var(--grid-header-bg);
+  color: var(--grid-text-color);
+  border-bottom: 1px solid var(--grid-border-color);
+}
+
+/* Individual header cells + text in dark */
+:root:not([data-theme="light"]) .MuiDataGrid-columnHeader,
+:root:not([data-theme="light"]) .MuiDataGrid-columnHeader--sortable,
+:root:not([data-theme="light"]) .MuiDataGrid-columnHeader:focus,
+:root:not([data-theme="light"]) .MuiDataGrid-columnHeader:focus-within {
+  background-color: var(--grid-header-bg);
+  color: var(--grid-text-color);
+  border-color: var(--grid-border-color);
+}
+:root:not([data-theme="light"]) .MuiDataGrid-columnHeaderTitle,
+:root:not([data-theme="light"]) .MuiDataGrid-columnHeaderTitleContainer {
+  color: var(--grid-text-color);
+  font-weight: 600;
+}

@@ -10,6 +10,7 @@ import HorizontalSplit from "@/components/HorizontalSplit";
 import { columnsMeta as generatedColumns, idField as generatedIdField } from "@/generated/blotterColumns";
 import Modal from "@/components/Modal";
 import { SwapModalShell } from "@/components/SwapModalShell";
+import { ThemeBar } from "@/components/ThemeBar";
 import { CopyTableButton, tableToTsv } from "@/components/TableExportControls";
 import { RiskBarChart } from "@/components/RiskBarChart";
 import { buildRiskSeries } from "@/lib/riskSeries";
@@ -70,26 +71,6 @@ const gridBaseSx = {
     outline: "none",
   },
 } as const;
-
-const ThemeBar = ({ effectiveTheme, onToggle }: { effectiveTheme: "light" | "dark"; onToggle: () => void }) => (
-  <div className="fixed top-0 inset-x-0 z-40 h-7 bg-gray-900/85 border-b border-gray-800 backdrop-blur flex items-center justify-end px-3 text-xs">
-    <button
-      aria-label="Toggle theme"
-      onClick={onToggle}
-      className="p-1 rounded-full border border-gray-600 bg-gray-800 text-gray-200 hover:text-amber-200 hover:border-amber-300 transition-colors"
-    >
-      {effectiveTheme === "dark" ? (
-        <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="currentColor" viewBox="0 0 20 20">
-          <path d="M10 2a1 1 0 01.993.883L11 3v1a1 1 0 01-1.993.117L9 4V3a1 1 0 011-1zm5.657 2.343a1 1 0 011.414 1.414l-.707.707a1 1 0 01-1.414-1.414l.707-.707zM10 6a4 4 0 110 8 4 4 0 010-8zm8 3a1 1 0 01.117 1.993L18 11h-1a1 1 0 01-.117-1.993L17 9h1zM4 10a1 1 0 01.117 1.993L4 12H3a1 1 0 01-.117-1.993L3 10h1zm11.657 5.657a1 1 0 010 1.414l-.707.707a1 1 0 01-1.497-1.32l.083-.094.707-.707a1 1 0 011.414 0zM10 16a1 1 0 01.993.883L11 17v1a1 1 0 01-1.993.117L9 18v-1a1 1 0 011-1zm-6.364-.343a1 1 0 011.414 0l.707.707a1 1 0 01-1.414 1.414l-.707-.707a1 1 0 010-1.414zM4.343 4.343a1 1 0 010 1.414L3.636 6.464a1 1 0 11-1.414-1.414l.707-.707a1 1 0 011.414 0z" />
-        </svg>
-      ) : (
-        <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="currentColor" viewBox="0 0 20 20">
-          <path d="M17.293 13.293a8 8 0 01-10.586-10.586.75.75 0 00-.853-1.201A9.501 9.501 0 1018.5 14.146a.75.75 0 00-1.207-.853z" />
-        </svg>
-      )}
-    </button>
-  </div>
-);
 
 const RateEditCellComponent = React.memo(function RateEditCellComponent(params: GridRenderEditCellParams) {
   const { api, id, field, value } = params;
