@@ -8,6 +8,8 @@ body {
   color: #e5e7eb;
   transition: background-color 200ms ease, color 200ms ease;
 }
+
+/* DARK THEME (default) */
 :root {
   color-scheme: dark;
   --grid-text-color: #e5e7eb;
@@ -23,14 +25,14 @@ body {
 /* LIGHT THEME – OLIVE / SAGE */
 :root[data-theme="light"] {
   color-scheme: light;
-  --grid-text-color: #283227;          
-  --grid-header-bg: #e4eadf;           
-  --grid-row-bg: #f1f5ef;              
-  --grid-border-color: #c4cfbe;        
+  --grid-text-color: #283227;
+  --grid-header-bg: #e4eadf;
+  --grid-row-bg: #f1f5ef;
+  --grid-border-color: #c4cfbe;
   --grid-editable-bg: #f4f8f1;
   --grid-editing-bg: #e8efe3;
-  --grid-hover-bg: rgba(107, 142, 35, 0.07); 
-  --accent-amber: #746d1d;             
+  --grid-hover-bg: rgba(107, 142, 35, 0.07);
+  --accent-amber: #746d1d;
 }
 
 :root[data-theme="light"] body {
@@ -38,6 +40,7 @@ body {
   color: #1e261d;
 }
 
+/* Tailwind gray overrides in light mode */
 :root[data-theme="light"] .bg-gray-950,
 :root[data-theme="light"] .bg-gray-950\/80,
 :root[data-theme="light"] .bg-gray-950\/70,
@@ -68,6 +71,7 @@ body {
   background-color: #b9c7b0 !important;
 }
 
+/* Text tones – softer than pure black */
 :root[data-theme="light"] .text-gray-100,
 :root[data-theme="light"] .text-gray-200 {
   color: #1d261b !important;
@@ -85,6 +89,7 @@ body {
   color: #6f7a67 !important;
 }
 
+/* Amber accent in light mode */
 :root[data-theme="light"] .text-amber-300,
 :root[data-theme="light"] .text-amber-200 {
   color: var(--accent-amber) !important;
@@ -93,6 +98,7 @@ body {
   border-color: #a8a239 !important;
 }
 
+/* Hover states */
 :root[data-theme="light"] .bg-gray-800\/30,
 :root[data-theme="light"] .bg-gray-800\/40 {
   background-color: #e7eddf !important;
@@ -109,6 +115,7 @@ body {
   background-color: #cdd7c4 !important;
 }
 
+/* Overlays / modals */
 :root[data-theme="light"] .bg-gray-900\/80,
 :root[data-theme="light"] .bg-gray-900\/80:hover {
   background-color: rgba(243, 246, 241, 0.96) !important;
@@ -117,6 +124,7 @@ body {
   background-color: rgba(243, 246, 241, 0.82) !important;
 }
 
+/* Borders & shadows */
 :root[data-theme="light"] .border-gray-900,
 :root[data-theme="light"] .border-gray-800,
 :root[data-theme="light"] .border-gray-700 {
@@ -127,11 +135,16 @@ body {
   --tw-shadow: 0 10px 25px -6px rgba(80, 96, 60, 0.12);
 }
 
+/* Chart container */
 :root[data-theme="light"] .chart-border {
   border: 1px solid rgba(175, 190, 165, 0.9);
 }
-.chart-border { border: 1px solid rgba(55,65,81,0.9); border-radius: 0.5rem; }
+.chart-border {
+  border: 1px solid rgba(55,65,81,0.9);
+  border-radius: 0.5rem;
+}
 
+/* Recharts light theme tweaks */
 :root[data-theme="light"] .recharts-surface {
   background-color: #f1f5ef;
 }
@@ -153,6 +166,7 @@ body {
   color: #283227 !important;
 }
 
+/* Flash animations – same for both themes */
 @keyframes flashUpTint {
   0% { color: #34d399; fill: #34d399; }
   60% { color: #34d399; fill: #34d399; }
@@ -174,48 +188,13 @@ body {
   fill: #f87171 !important;
 }
 
-/* Force MUI DataGrid headers to use theme vars in olive light mode */
+/* MUI DataGrid – light theme only */
 :root[data-theme="light"] .MuiDataGrid-root {
   color: var(--grid-text-color);
   border: 0;
 }
 
-:root[data-theme="light"] .MuiDataGrid-columnHeaders {
-  background-color: var(--grid-header-bg) !important;
-  color: var(--grid-text-color) !important;
-  border-bottom: 1px solid var(--grid-border-color) !important;
-}
-
-:root[data-theme="light"] .MuiDataGrid-columnHeaderTitle {
-  color: var(--grid-text-color) !important;
-  font-weight: 600;
-}
-
-/* Keep rows & cells consistent with your gridBaseSx */
-:root[data-theme="light"] .MuiDataGrid-row {
-  background-color: var(--grid-row-bg);
-}
-
-:root[data-theme="light"] .MuiDataGrid-cell {
-  border-color: var(--grid-border-color);
-  color: var(--grid-text-color);
-}
-
-:root[data-theme="light"] .MuiDataGrid-columnSeparator {
-  color: var(--grid-border-color);
-}
-
-:root[data-theme="light"] .MuiDataGrid-row.Mui-hovered,
-:root[data-theme="light"] .MuiDataGrid-row.Mui-selected {
-  background-color: var(--grid-hover-bg) !important;
-}
-/* Stronger MUI DataGrid header theming for olive light mode */
-:root[data-theme="light"] .MuiDataGrid-root {
-  color: var(--grid-text-color);
-  border: 0;
-}
-
-/* Header container strip (the bar across the top) */
+/* Header bar */
 :root[data-theme="light"] .MuiDataGrid-columnHeaders,
 :root[data-theme="light"] .MuiDataGrid-columnHeadersInner {
   background-color: var(--grid-header-bg) !important;
@@ -223,7 +202,7 @@ body {
   border-bottom: 1px solid var(--grid-border-color) !important;
 }
 
-/* Individual header cells */
+/* Individual header cells + text */
 :root[data-theme="light"] .MuiDataGrid-columnHeader,
 :root[data-theme="light"] .MuiDataGrid-columnHeader--sortable,
 :root[data-theme="light"] .MuiDataGrid-columnHeader:focus,
@@ -232,44 +211,37 @@ body {
   color: var(--grid-text-color) !important;
   border-color: var(--grid-border-color) !important;
 }
-
-/* Header text */
 :root[data-theme="light"] .MuiDataGrid-columnHeaderTitle,
 :root[data-theme="light"] .MuiDataGrid-columnHeaderTitleContainer {
   color: var(--grid-text-color) !important;
   font-weight: 600;
 }
 
-/* Keep rows & cells consistent with your vars */
+/* Rows / cells */
 :root[data-theme="light"] .MuiDataGrid-row {
   background-color: var(--grid-row-bg) !important;
 }
-
 :root[data-theme="light"] .MuiDataGrid-cell {
   border-color: var(--grid-border-color) !important;
   color: var(--grid-text-color) !important;
 }
-
 :root[data-theme="light"] .MuiDataGrid-columnSeparator {
   color: var(--grid-border-color) !important;
 }
-
 :root[data-theme="light"] .MuiDataGrid-row.Mui-hovered,
 :root[data-theme="light"] .MuiDataGrid-row.Mui-selected {
   background-color: var(--grid-hover-bg) !important;
 }
 
-/* Light theme button tweaks */
+/* Light theme blue button tweaks */
 :root[data-theme="light"] .btn-blue {
-  background-color: rgba(37, 99, 235, 0.10);   /* slightly darker base */
+  background-color: rgba(37, 99, 235, 0.10);
   border-color: rgba(37, 99, 235, 0.45);
-  color: #1d3b8a;                              /* deeper blue text */
+  color: #1d3b8a;
 }
-
 :root[data-theme="light"] .btn-blue:hover {
   background-color: rgba(37, 99, 235, 0.18);
 }
-
 :root[data-theme="light"] .btn-blue:disabled {
   opacity: 0.55;
 }

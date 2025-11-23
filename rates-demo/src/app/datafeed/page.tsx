@@ -71,6 +71,26 @@ const gridBaseSx = {
   },
 } as const;
 
+const ThemeBar = ({ effectiveTheme, onToggle }: { effectiveTheme: "light" | "dark"; onToggle: () => void }) => (
+  <div className="fixed top-0 inset-x-0 z-40 h-7 bg-gray-900/85 border-b border-gray-800 backdrop-blur flex items-center justify-end px-3 text-xs">
+    <button
+      aria-label="Toggle theme"
+      onClick={onToggle}
+      className="p-1 rounded-full border border-gray-600 bg-gray-800 text-gray-200 hover:text-amber-200 hover:border-amber-300 transition-colors"
+    >
+      {effectiveTheme === "dark" ? (
+        <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="currentColor" viewBox="0 0 20 20">
+          <path d="M10 2a1 1 0 01.993.883L11 3v1a1 1 0 01-1.993.117L9 4V3a1 1 0 011-1zm5.657 2.343a1 1 0 011.414 1.414l-.707.707a1 1 0 01-1.414-1.414l.707-.707zM10 6a4 4 0 110 8 4 4 0 010-8zm8 3a1 1 0 01.117 1.993L18 11h-1a1 1 0 01-.117-1.993L17 9h1zM4 10a1 1 0 01.117 1.993L4 12H3a1 1 0 01-.117-1.993L3 10h1zm11.657 5.657a1 1 0 010 1.414l-.707.707a1 1 0 01-1.497-1.32l.083-.094.707-.707a1 1 0 011.414 0zM10 16a1 1 0 01.993.883L11 17v1a1 1 0 01-1.993.117L9 18v-1a1 1 0 011-1zm-6.364-.343a1 1 0 011.414 0l.707.707a1 1 0 01-1.414 1.414l-.707-.707a1 1 0 010-1.414zM4.343 4.343a1 1 0 010 1.414L3.636 6.464a1 1 0 11-1.414-1.414l.707-.707a1 1 0 011.414 0z" />
+        </svg>
+      ) : (
+        <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="currentColor" viewBox="0 0 20 20">
+          <path d="M17.293 13.293a8 8 0 01-10.586-10.586.75.75 0 00-.853-1.201A9.501 9.501 0 1018.5 14.146a.75.75 0 00-1.207-.853z" />
+        </svg>
+      )}
+    </button>
+  </div>
+);
+
 const RateEditCellComponent = React.memo(function RateEditCellComponent(params: GridRenderEditCellParams) {
   const { api, id, field, value } = params;
   const [raw, setRaw] = React.useState(() => (value == null ? "" : String(Number(value) * 100)));
@@ -152,6 +172,10 @@ function DatafeedPageInner() {
   const counterpartyCfPrevRef = React.useRef<Map<string, number>>(new Map());
   const counterpartyCfTypeCacheRef = React.useRef<Map<string, string>>(new Map());
   const counterpartyCfLabelCacheRef = React.useRef<Map<string, string>>(new Map());
+  const [themeMode, setThemeMode] = React.useState<"system" | "light" | "dark">("system");
+  const [systemTheme, setSystemTheme] = React.useState<"light" | "dark">("dark");
+  const [effectiveTheme, setEffectiveTheme] = React.useState<"light" | "dark">("dark");
+  const themeReadyRef = React.useRef(false);
   const detailsRef = React.useRef<Worker | null>(null);
   const [detailsReady, setDetailsReady] = React.useState(false);
   const [modalRisk, setModalRisk] = React.useState<any | null>(null);
@@ -184,6 +208,33 @@ function DatafeedPageInner() {
   React.useEffect(() => {
     floatFixingsIndexRef.current = modalFloatFixings?.index ?? null;
   }, [modalFloatFixings?.index]);
+  React.useEffect(() => {
+    if (typeof window === "undefined") return;
+    const stored = window.localStorage.getItem("theme-mode");
+    const initial = stored === "light" || stored === "dark" || stored === "system" ? stored : "system";
+    setThemeMode(initial);
+    const mql = window.matchMedia("(prefers-color-scheme: dark)");
+    const updateSystem = (matches: boolean) => setSystemTheme(matches ? "dark" : "light");
+    updateSystem(mql.matches);
+    const handler = (e: MediaQueryListEvent) => {
+      updateSystem(e.matches);
+    };
+    mql.addEventListener("change", handler);
+    themeReadyRef.current = true;
+    return () => mql.removeEventListener("change", handler);
+  }, []);
+  React.useEffect(() => {
+    const computed: "light" | "dark" = themeMode === "system" ? systemTheme : themeMode;
+    setEffectiveTheme(computed);
+    if (typeof document !== "undefined") {
+      const root = document.documentElement;
+      root.classList.toggle("dark", computed === "dark");
+      root.dataset.theme = computed;
+    }
+    if (themeReadyRef.current && typeof window !== "undefined") {
+      window.localStorage.setItem("theme-mode", themeMode);
+    }
+  }, [themeMode, systemTheme]);
   React.useEffect(() => {
     counterpartyApproxIdRef.current = counterpartyApproxKey;
     // Reset caches when counterparty changes
@@ -1606,7 +1657,7 @@ const renderRateEditCell = React.useCallback((params: GridRenderEditCellParams) 
   const counterpartyPageEnd = counterpartySwapCount === 0 ? 0 : Math.min((counterpartyPagination.page + 1) * counterpartyPagination.pageSize, counterpartySwapCount);
 
   return (
-    <div className="min-h-screen bg-gray-950 text-gray-100">
+    <div className="min-h-screen bg-gray-950 text-gray-100 pt-7">
       {fatalError || approxFatal ? (
         <div className="p-8 text-center text-red-300">
           <div className="text-lg font-semibold mb-2">Datafeed error</div>
@@ -1618,6 +1669,13 @@ const renderRateEditCell = React.useCallback((params: GridRenderEditCellParams) 
         </div>
       ) : (
         <>
+          <ThemeBar
+            effectiveTheme={effectiveTheme}
+            onToggle={() => setThemeMode((prev) => {
+              const current = prev === "system" ? effectiveTheme : prev;
+              return current === "dark" ? "light" : "dark";
+            })}
+          />
           <VerticalSplit top={Top} bottom={Bottom} initialTopHeight={520} />
           {counterpartyId && (
             <Modal title={`Counterparty ${counterpartyId}`}>
