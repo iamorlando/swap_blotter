@@ -1255,13 +1255,21 @@ const renderRateEditCell = React.useCallback((params: GridRenderEditCellParams) 
   const RightPanel = (
     <div className="relative p-6 space-y-4 min-w-[320px]">
       {showCalibOverlay && !calibErr && (
-        <div className="absolute inset-0 z-10 backdrop-blur-sm bg-gray-900/50 flex items-center justify-center text-gray-200 text-sm">
+        <div className="absolute inset-0 z-10 backdrop-blur-sm overlay-panel flex items-center justify-center text-sm">
           Loading calibration...
         </div>
       )}
       <div className="flex items-center justify-between">
         <div className="text-sm text-gray-400">{calibErr ? <span className="text-red-500">{calibErr}</span> : calibReady ? "Calibration" : "loading rateslib..."}</div>
-        <button onClick={recalibrate} disabled={!calibReady || calibrating} className="inline-flex items-center rounded-md border border-blue-500/40 bg-blue-500/10 px-3 py-1.5 text-blue-300 hover:bg-blue-500/20 focus:outline-none focus:ring-2 focus:ring-blue-500/50 disabled:opacity-50">
+        <button onClick={recalibrate} disabled={!calibReady || calibrating} className="
+  btn-blue
+  inline-flex items-center rounded-md
+  border px-3 py-1.5
+  bg-blue-500/10 border-blue-500/40 text-blue-300
+  hover:bg-blue-500/20
+  focus:outline-none focus:ring-2 focus:ring-blue-500/50
+  disabled:opacity-50
+">
           {calibrating ? "recalibrating..." : "recalibrate"}
         </button>
       </div>
@@ -1337,7 +1345,7 @@ const renderRateEditCell = React.useCallback((params: GridRenderEditCellParams) 
   const Top = (
     <div className="relative">
       {showMarketOverlay && (
-        <div className="absolute inset-0 z-10 pointer-events-none backdrop-blur-sm bg-gray-900/50 flex items-center justify-center text-gray-200 text-sm">
+        <div className="absolute inset-0 z-10 pointer-events-none backdrop-blur-sm overlay-panel flex items-center justify-center text-sm">
           Loading market data...
         </div>
       )}

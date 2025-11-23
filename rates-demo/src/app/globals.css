@@ -19,110 +19,140 @@ body {
   --grid-hover-bg: rgba(251, 191, 36, 0.12);
   --accent-amber: #fcd34d;
 }
+
+/* LIGHT THEME – OLIVE / SAGE */
 :root[data-theme="light"] {
   color-scheme: light;
-  --grid-text-color: #0f172a;
-  --grid-header-bg: #e2e8f0;
-  --grid-row-bg: #ffffff;
-  --grid-border-color: #cbd5f5;
-  --grid-editable-bg: #f8fafc;
-  --grid-editing-bg: #eef2ff;
-  --grid-hover-bg: rgba(59, 130, 246, 0.12);
-  --accent-amber: #b45309;
+  --grid-text-color: #283227;          
+  --grid-header-bg: #e4eadf;           
+  --grid-row-bg: #f1f5ef;              
+  --grid-border-color: #c4cfbe;        
+  --grid-editable-bg: #f4f8f1;
+  --grid-editing-bg: #e8efe3;
+  --grid-hover-bg: rgba(107, 142, 35, 0.07); 
+  --accent-amber: #746d1d;             
 }
+
 :root[data-theme="light"] body {
-  background-color: #f4f6fb;
-  color: #111827;
+  background-color: #f3f6f1;
+  color: #1e261d;
 }
 
 :root[data-theme="light"] .bg-gray-950,
 :root[data-theme="light"] .bg-gray-950\/80,
 :root[data-theme="light"] .bg-gray-950\/70,
 :root[data-theme="light"] .bg-gray-950\/60 {
-  background-color: #f8fafc !important;
+  background-color: #f5f7f2 !important;
 }
 :root[data-theme="light"] .bg-gray-900,
 :root[data-theme="light"] .bg-gray-900\/95,
 :root[data-theme="light"] .bg-gray-900\/80,
 :root[data-theme="light"] .bg-gray-900\/50 {
-  background-color: #ffffff !important;
+  background-color: #f4f6f1 !important;
 }
 :root[data-theme="light"] .bg-gray-900\/80 {
-  background-color: rgba(255, 255, 255, 0.9) !important;
+  background-color: rgba(244, 246, 241, 0.9) !important;
 }
 :root[data-theme="light"] .bg-gray-900\/50 {
-  background-color: rgba(255, 255, 255, 0.7) !important;
+  background-color: rgba(244, 246, 241, 0.7) !important;
 }
 :root[data-theme="light"] .bg-gray-800,
 :root[data-theme="light"] .bg-gray-800\/40,
 :root[data-theme="light"] .bg-gray-800\/30 {
-  background-color: #e2e8f0 !important;
+  background-color: #e2e8dd !important;
 }
 :root[data-theme="light"] .bg-gray-700 {
-  background-color: #d7deed !important;
+  background-color: #d1dac9 !important;
 }
 :root[data-theme="light"] .bg-gray-600 {
-  background-color: #c7d5f1 !important;
+  background-color: #b9c7b0 !important;
 }
+
 :root[data-theme="light"] .text-gray-100,
 :root[data-theme="light"] .text-gray-200 {
-  color: #0f172a !important;
+  color: #1d261b !important;
 }
 :root[data-theme="light"] .text-gray-300 {
-  color: #1f2937 !important;
+  color: #263022 !important;
 }
 :root[data-theme="light"] .text-gray-400 {
-  color: #475569 !important;
+  color: #43503f !important;
 }
 :root[data-theme="light"] .text-gray-500 {
-  color: #64748b !important;
+  color: #55614f !important;
 }
 :root[data-theme="light"] .text-gray-600 {
-  color: #94a3b8 !important;
+  color: #6f7a67 !important;
 }
+
 :root[data-theme="light"] .text-amber-300,
 :root[data-theme="light"] .text-amber-200 {
   color: var(--accent-amber) !important;
 }
 :root[data-theme="light"] .border-amber-400 {
-  border-color: #f59e0b !important;
+  border-color: #a8a239 !important;
 }
+
 :root[data-theme="light"] .bg-gray-800\/30,
 :root[data-theme="light"] .bg-gray-800\/40 {
-  background-color: #eef2ff !important;
+  background-color: #e7eddf !important;
 }
 :root[data-theme="light"] .hover\:bg-gray-800:hover,
 :root[data-theme="light"] .hover\:bg-gray-800\/30:hover,
 :root[data-theme="light"] .hover\:bg-gray-800\/40:hover {
-  background-color: #dbeafe !important;
+  background-color: #dfe6d7 !important;
 }
 :root[data-theme="light"] .hover\:bg-gray-700:hover {
-  background-color: #e8efff !important;
+  background-color: #e3eadb !important;
 }
 :root[data-theme="light"] .active\:bg-gray-600:active {
-  background-color: #d4e4fb !important;
+  background-color: #cdd7c4 !important;
 }
+
 :root[data-theme="light"] .bg-gray-900\/80,
 :root[data-theme="light"] .bg-gray-900\/80:hover {
-  background-color: rgba(255, 255, 255, 0.95) !important;
+  background-color: rgba(243, 246, 241, 0.96) !important;
 }
 :root[data-theme="light"] .bg-gray-900\/50 {
-  background-color: rgba(255, 255, 255, 0.8) !important;
+  background-color: rgba(243, 246, 241, 0.82) !important;
 }
+
 :root[data-theme="light"] .border-gray-900,
 :root[data-theme="light"] .border-gray-800,
 :root[data-theme="light"] .border-gray-700 {
-  border-color: #d0d7e6 !important;
+  border-color: #c7d2c0 !important;
 }
 :root[data-theme="light"] .shadow-gray-900 {
-  --tw-shadow-color: rgba(15, 23, 42, 0.15);
-  --tw-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.1);
+  --tw-shadow-color: rgba(80, 96, 60, 0.16);
+  --tw-shadow: 0 10px 25px -6px rgba(80, 96, 60, 0.12);
 }
 
-:root[data-theme="light"] .chart-border { border: 1px solid rgba(180,192,210,0.9); }
+:root[data-theme="light"] .chart-border {
+  border: 1px solid rgba(175, 190, 165, 0.9);
+}
 .chart-border { border: 1px solid rgba(55,65,81,0.9); border-radius: 0.5rem; }
 
-/* Flash animations for up/down ticks */
+:root[data-theme="light"] .recharts-surface {
+  background-color: #f1f5ef;
+}
+:root[data-theme="light"] .recharts-cartesian-grid line {
+  stroke: #d7decf !important;
+}
+:root[data-theme="light"] .recharts-cartesian-axis-line,
+:root[data-theme="light"] .recharts-cartesian-axis-tick-line {
+  stroke: #c6d0bf !important;
+}
+:root[data-theme="light"] .recharts-cartesian-axis-tick-value,
+:root[data-theme="light"] .recharts-polar-angle-axis-tick-value,
+:root[data-theme="light"] .recharts-polar-radius-axis-tick-value {
+  fill: #4e5848 !important;
+}
+:root[data-theme="light"] .recharts-tooltip-wrapper .recharts-default-tooltip {
+  background: #f3f6f1 !important;
+  border-color: #c6d0bf !important;
+  color: #283227 !important;
+}
+
 @keyframes flashUpTint {
   0% { color: #34d399; fill: #34d399; }
   60% { color: #34d399; fill: #34d399; }
@@ -133,5 +163,113 @@ body {
   60% { color: #f87171; fill: #f87171; }
   100% { color: #e5e7eb; fill: #e5e7eb; }
 }
-.flash-up { animation: flashUpTint 1200ms cubic-bezier(0.22, 1, 0.36, 1) 1; color: #34d399 !important; fill: #34d399 !important; }
-.flash-down { animation: flashDownTint 1200ms cubic-bezier(0.22, 1, 0.36, 1) 1; color: #f87171 !important; fill: #f87171 !important; }
+.flash-up {
+  animation: flashUpTint 1200ms cubic-bezier(0.22, 1, 0.36, 1) 1;
+  color: #34d399 !important;
+  fill: #34d399 !important;
+}
+.flash-down {
+  animation: flashDownTint 1200ms cubic-bezier(0.22, 1, 0.36, 1) 1;
+  color: #f87171 !important;
+  fill: #f87171 !important;
+}
+
+/* Force MUI DataGrid headers to use theme vars in olive light mode */
+:root[data-theme="light"] .MuiDataGrid-root {
+  color: var(--grid-text-color);
+  border: 0;
+}
+
+:root[data-theme="light"] .MuiDataGrid-columnHeaders {
+  background-color: var(--grid-header-bg) !important;
+  color: var(--grid-text-color) !important;
+  border-bottom: 1px solid var(--grid-border-color) !important;
+}
+
+:root[data-theme="light"] .MuiDataGrid-columnHeaderTitle {
+  color: var(--grid-text-color) !important;
+  font-weight: 600;
+}
+
+/* Keep rows & cells consistent with your gridBaseSx */
+:root[data-theme="light"] .MuiDataGrid-row {
+  background-color: var(--grid-row-bg);
+}
+
+:root[data-theme="light"] .MuiDataGrid-cell {
+  border-color: var(--grid-border-color);
+  color: var(--grid-text-color);
+}
+
+:root[data-theme="light"] .MuiDataGrid-columnSeparator {
+  color: var(--grid-border-color);
+}
+
+:root[data-theme="light"] .MuiDataGrid-row.Mui-hovered,
+:root[data-theme="light"] .MuiDataGrid-row.Mui-selected {
+  background-color: var(--grid-hover-bg) !important;
+}
+/* Stronger MUI DataGrid header theming for olive light mode */
+:root[data-theme="light"] .MuiDataGrid-root {
+  color: var(--grid-text-color);
+  border: 0;
+}
+
+/* Header container strip (the bar across the top) */
+:root[data-theme="light"] .MuiDataGrid-columnHeaders,
+:root[data-theme="light"] .MuiDataGrid-columnHeadersInner {
+  background-color: var(--grid-header-bg) !important;
+  color: var(--grid-text-color) !important;
+  border-bottom: 1px solid var(--grid-border-color) !important;
+}
+
+/* Individual header cells */
+:root[data-theme="light"] .MuiDataGrid-columnHeader,
+:root[data-theme="light"] .MuiDataGrid-columnHeader--sortable,
+:root[data-theme="light"] .MuiDataGrid-columnHeader:focus,
+:root[data-theme="light"] .MuiDataGrid-columnHeader:focus-within {
+  background-color: var(--grid-header-bg) !important;
+  color: var(--grid-text-color) !important;
+  border-color: var(--grid-border-color) !important;
+}
+
+/* Header text */
+:root[data-theme="light"] .MuiDataGrid-columnHeaderTitle,
+:root[data-theme="light"] .MuiDataGrid-columnHeaderTitleContainer {
+  color: var(--grid-text-color) !important;
+  font-weight: 600;
+}
+
+/* Keep rows & cells consistent with your vars */
+:root[data-theme="light"] .MuiDataGrid-row {
+  background-color: var(--grid-row-bg) !important;
+}
+
+:root[data-theme="light"] .MuiDataGrid-cell {
+  border-color: var(--grid-border-color) !important;
+  color: var(--grid-text-color) !important;
+}
+
+:root[data-theme="light"] .MuiDataGrid-columnSeparator {
+  color: var(--grid-border-color) !important;
+}
+
+:root[data-theme="light"] .MuiDataGrid-row.Mui-hovered,
+:root[data-theme="light"] .MuiDataGrid-row.Mui-selected {
+  background-color: var(--grid-hover-bg) !important;
+}
+
+/* Light theme button tweaks */
+:root[data-theme="light"] .btn-blue {
+  background-color: rgba(37, 99, 235, 0.10);   /* slightly darker base */
+  border-color: rgba(37, 99, 235, 0.45);
+  color: #1d3b8a;                              /* deeper blue text */
+}
+
+:root[data-theme="light"] .btn-blue:hover {
+  background-color: rgba(37, 99, 235, 0.18);
+}
+
+:root[data-theme="light"] .btn-blue:disabled {
+  opacity: 0.55;
+}
