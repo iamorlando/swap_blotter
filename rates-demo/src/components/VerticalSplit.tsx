@@ -67,8 +67,10 @@ export default function VerticalSplit({
 
   return (
     <div ref={containerRef} className="flex flex-col min-h-[70vh] h-[calc(100vh-2rem)]">
-      <div className="min-h-0 overflow-auto" style={{ height: topH || minTop }}>
-        {top}
+      <div className="min-h-0 overflow-hidden" style={{ height: topH || minTop }}>
+        <div className="h-full min-h-0 flex flex-col">
+          {top}
+        </div>
       </div>
       <div
         className="h-2 cursor-row-resize bg-gray-800 hover:bg-gray-700 active:bg-gray-600"

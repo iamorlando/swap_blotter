@@ -1378,7 +1378,7 @@ const renderRateEditCell = React.useCallback((params: GridRenderEditCellParams) 
   );
 
   const Top = (
-    <div className="relative">
+    <div className="relative h-full min-h-0">
       {showMarketOverlay && (
         <div className="absolute inset-0 z-10 pointer-events-none backdrop-blur-sm overlay-panel flex items-center justify-center text-sm">
           Loading market data...
