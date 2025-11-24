@@ -214,9 +214,7 @@ export async function GET(req: Request) {
     ),
     {
       ...size,
-      headers: {
-        "content-type": contentType,
-      },
+      headers: { "content-type": contentType },
     }
   );
 }
