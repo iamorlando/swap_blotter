@@ -8,6 +8,8 @@ const baseUrl =
 export async function generateMetadata({ params }: { params: { id: string } }): Promise<Metadata> {
   const swap = await fetchSwapById(params.id);
   const swapId = swap?.ID ?? swap?.id ?? params.id;
+  const now = new Date();
+  const asOf = `${String(now.getUTCDate()).padStart(2, "0")}/${String(now.getUTCMonth() + 1).padStart(2, "0")}/${now.getUTCFullYear()} ${String(now.getUTCHours()).padStart(2, "0")}:${String(now.getUTCMinutes()).padStart(2, "0")} UTC`;
   const descParts = [
     swap?.SwapType ? String(swap.SwapType) : null,
     swap?.FixedRate != null ? `Fixed ${Number(swap.FixedRate).toFixed(2)}%` : null,
@@ -18,16 +20,16 @@ export async function generateMetadata({ params }: { params: { id: string } }): 
   const imagePath = `/swap/${params.id}/opengraph-image`;
 
   const metadata: Metadata = {
-    title: `Swap ${swapId} | Rates Demo`,
+    title: `Swap ${swapId} · As of ${asOf}`,
     description,
     openGraph: {
-      title: `Swap ${swapId} | Rates Demo`,
+      title: `Swap ${swapId} · As of ${asOf}`,
       description,
       images: [imagePath],
     },
     twitter: {
       card: "summary_large_image",
-      title: `Swap ${swapId} | Rates Demo`,
+      title: `Swap ${swapId} · As of ${asOf}`,
       description,
       images: [imagePath],
     },

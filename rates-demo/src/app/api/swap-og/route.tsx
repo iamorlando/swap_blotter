@@ -104,12 +104,14 @@ export async function GET(req: Request) {
             border: "1px solid rgba(59,130,246,0.18)",
             boxShadow: "0 30px 120px rgba(0,0,0,0.45)",
           }}
-        >
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 20 }}>
-            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              <div style={{ display: "flex", fontSize: 20, color: "#94a3b8" }}>Swap</div>
-              <div style={{ display: "flex", fontSize: 52, fontWeight: 800, color: "#f8fafc", letterSpacing: -0.5 }}>#{idLabel}</div>
-              <div style={{ display: "flex", fontSize: 22, color: "#cbd5e1" }}>{swapType}</div>
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 20 }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                <div style={{ display: "flex", fontSize: 20, color: "#94a3b8" }}>
+                  as of {new Date().toISOString().slice(0, 19).replace("T", " ")}
+                </div>
+                <div style={{ display: "flex", fontSize: 52, fontWeight: 800, color: "#f8fafc", letterSpacing: -0.5 }}>#{idLabel}</div>
+                <div style={{ display: "flex", fontSize: 22, color: "#cbd5e1" }}>{swapType}</div>
               {payDir ? (
                 <div
                   style={{
