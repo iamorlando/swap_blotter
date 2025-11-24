@@ -19,7 +19,7 @@ const formatUsd = (val: any) => {
 
 const formatPct = (val: any) => {
   if (val == null) return "—";
-  const num = Number(val);
+  const num = Number(val)/100.0;
   if (!Number.isFinite(num)) return "—";
   return `${(num).toFixed(2)}%`;
 };
