@@ -301,7 +301,6 @@ export function SwapModalShell({
           >
             Full reval
           </button>
-          <button onClick={onClose} className="px-3 py-1.5 rounded-md border border-gray-700 bg-gray-900 text-gray-300 hover:bg-gray-800">Close</button>
         </div>
       </div>
 

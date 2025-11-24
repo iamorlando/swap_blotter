@@ -15,6 +15,7 @@ import { CopyTableButton, tableToTsv } from "@/components/TableExportControls";
 import { RiskBarChart } from "@/components/RiskBarChart";
 import { buildRiskSeries } from "@/lib/riskSeries";
 import { useIsMobileViewport } from "@/lib/useIsMobileViewport";
+import { ShareSwapButton } from "@/components/ShareSwapButton";
 
 let sharedDatafeedWorker: Worker | null = null;
 let datafeedInitialized = false;
@@ -1661,7 +1662,7 @@ const renderRateEditCell = React.useCallback((params: GridRenderEditCellParams) 
           />
           {isMobile ? Bottom : <VerticalSplit top={Top} bottom={Bottom} initialTopHeight={520} />}
           {counterpartyId && (
-            <Modal title={`Counterparty ${counterpartyId}`}>
+            <Modal title={`Counterparty ${counterpartyId}`} onClose={closeCounterparty}>
               {counterpartyLoading ? (
                 <div className="text-sm text-gray-400">Loading counterparty…</div>
               ) : counterpartyRow ? (
@@ -1850,7 +1851,7 @@ const renderRateEditCell = React.useCallback((params: GridRenderEditCellParams) 
             </Modal>
           )}
           {swapId && (
-            <Modal title={`Swap ${swapId}`}>
+            <Modal title={`Swap ${swapId}`} onClose={closeSwap} actions={<ShareSwapButton swapId={swapId} />}>
               <SwapModalShell
                 swapId={swapId}
                 onClose={closeSwap}
@@ -1913,12 +1914,12 @@ function BlotterGrid({ approxReady, approxOverrides, requestApproximation, clear
   const initialColumns: GridColDef<BlotterRow>[] = React.useMemo(() => {
     const cols: GridColDef<BlotterRow>[] = (apiCols.length ? apiCols : [{ field: generatedIdField || "ID" }])
       .filter((c) => c.field !== "RowType")
-      .map((c) => {
-    const base: GridColDef<BlotterRow> = {
-      field: c.field,
-      headerName: c.field,
-      flex: 1,
-    };
+      .map((c, idx) => {
+        const base: GridColDef<BlotterRow> = {
+          field: c.field,
+          headerName: c.field,
+          flex: 1,
+        };
         const t = (c.type || "").toLowerCase();
         if (t.includes("int") || t.includes("decimal") || t.includes("double") || t.includes("float") || t.includes("real") || t.includes("bigint")) {
           base.type = "number";
@@ -1978,6 +1979,20 @@ function BlotterGrid({ approxReady, approxOverrides, requestApproximation, clear
           base.renderCell = (p: any) => <span>{p?.value == null ? "" : `${Number(p.value).toFixed(2)} %`}</span>;
           base.align = "right";
         }
+        if (idx < 2) {
+          // Let the first two columns size to their content with a modest min width
+          base.flex = 0;
+          base.minWidth = Math.max(base.width ?? 0, 120);
+          base.maxWidth = 260;
+          base.width = base.minWidth;
+          if (!base.renderCell) {
+            base.renderCell = (p: any) => (
+              <span className="whitespace-nowrap">
+                {p?.value == null ? "" : String(p.value)}
+              </span>
+            );
+          }
+        }
         return base;
       });
     // ID column as link
@@ -2035,7 +2050,7 @@ function BlotterGrid({ approxReady, approxOverrides, requestApproximation, clear
     return cols;
   }, [apiCols, fmtDate, onOpenSwap, onPauseTicks, onResumeTicks, usd]);
 
-  const [columns] = React.useState<GridColDef<BlotterRow>[]>(initialColumns);
+  const [columns, setColumns] = React.useState<GridColDef<BlotterRow>[]>(initialColumns);
   const [rows, setRows] = React.useState<BlotterRow[]>([]);
   const [rowCount, setRowCount] = React.useState(0);
   const [paginationModel, setPaginationModel] = React.useState<GridPaginationModel>({ page: 0, pageSize: 20 });
@@ -2089,6 +2104,39 @@ function BlotterGrid({ approxReady, approxOverrides, requestApproximation, clear
     }
   }, [approxReady, hasCurveData, requestApproximation, sanitizeRecord, onRiskMapUpdate, onFatalError]);
 
+  const autosizeColumns = React.useCallback((cols: GridColDef<BlotterRow>[], dataRows: BlotterRow[]) => {
+    if (!dataRows || !dataRows.length) return cols;
+    const formatVal = (val: any, col: GridColDef<BlotterRow>) => {
+      if (val == null) return "";
+      if (col.valueFormatter) {
+        try {
+          return String(col.valueFormatter({ value: val, field: col.field, row: {} as any }));
+        } catch {
+          /* ignore */
+        }
+      }
+      if (typeof val === "number") return Number(val).toString();
+      if (val instanceof Date) return val.toISOString();
+      return String(val);
+    };
+    const next = cols.map((col, idx) => {
+      const headerLen = (col.headerName || col.field || "").length;
+      const maxValLen = dataRows.reduce((max, row) => {
+        const raw = row?.[col.field as keyof BlotterRow];
+        const str = formatVal(raw, col);
+        return Math.max(max, str.length);
+      }, headerLen);
+      const isNumeric = col.type === "number" || col.align === "right";
+      const baseMin = isNumeric ? 120 : 110;
+      const minWidth = Math.max(col.minWidth ?? 0, baseMin);
+      const maxWidth = Math.max(col.maxWidth ?? 0, isNumeric ? 320 : 360);
+      const px = Math.min(maxWidth, Math.max(minWidth, maxValLen * 8 + 28));
+      if (col.width === px && col.minWidth === minWidth && col.maxWidth === maxWidth && col.flex === 0) return col;
+      return { ...col, width: px, minWidth, maxWidth, flex: 0 };
+    });
+    return next;
+  }, []);
+
   const fetchData = React.useCallback(async () => {
     setLoading(true);
     try {
@@ -2113,6 +2161,7 @@ function BlotterGrid({ approxReady, approxOverrides, requestApproximation, clear
       });
       setRows(baseRows);
       setRowCount(data.total || 0);
+      setColumns((prev) => autosizeColumns(prev, baseRows));
       clearApproximation();
       onRiskMapUpdate({});
       requestApprox(baseRows).catch((err) => console.error("[blotter] approx", err));

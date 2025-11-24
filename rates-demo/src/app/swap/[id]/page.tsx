@@ -1,6 +1,4 @@
 import type { Metadata } from "next";
-import { headers } from "next/headers";
-import { redirect } from "next/navigation";
 import { fetchSwapById } from "@/lib/swaps";
 
 const baseUrl =
@@ -44,14 +42,6 @@ export async function generateMetadata({ params }: { params: { id: string } }): 
 
 export default function SwapFullPage({ params }: { params: { id: string } }) {
   const { id } = params;
-  const ua = headers().get("user-agent") || "";
-  const isBot = /facebookexternalhit|facebot|twitterbot|slackbot|discord|discordbot|linkedinbot|telegrambot|whatsapp|preview|crawler|spider|bot/i.test(
-    ua
-  );
-
-  if (!isBot) {
-    redirect(`/?swap=${encodeURIComponent(id)}`);
-  }
 
   return (
     <div style={{ padding: 32, fontFamily: "sans-serif", color: "#e5e7eb", background: "#0b1220", minHeight: "100vh" }}>
@@ -60,6 +50,16 @@ export default function SwapFullPage({ params }: { params: { id: string } }) {
         This endpoint is primarily for link previews. If you are seeing this page, please visit the datafeed view:
         <a href={`/?swap=${encodeURIComponent(id)}`} style={{ color: "#60a5fa", marginLeft: 8 }}>Open swap</a>
       </p>
+      <script
+        dangerouslySetInnerHTML={{
+          __html: `if (typeof window !== "undefined" && !/bot|crawler|spider|preview|link|meta/i.test(navigator.userAgent)) { window.location.replace("/?swap=${encodeURIComponent(
+            id
+          )}"); }`,
+        }}
+      />
+      <noscript>
+        <meta httpEquiv="refresh" content={`0;url=/?swap=${encodeURIComponent(id)}`} />
+      </noscript>
     </div>
   );
 }
