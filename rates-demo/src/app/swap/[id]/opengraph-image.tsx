@@ -1,4 +1,3 @@
-import { headers } from "next/headers";
 import { ImageResponse } from "next/og";
 export const runtime = "edge";
 export const dynamic = "force-dynamic";
@@ -6,18 +5,6 @@ export const revalidate = 0;
 export const alt = "Swap summary";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
-
-function resolveBaseUrl() {
-  const envUrl =
-    process.env.NEXT_PUBLIC_SITE_URL ||
-    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null);
-  if (envUrl) return envUrl;
-  const hdrs = headers();
-  const host = hdrs.get("x-forwarded-host") || hdrs.get("host");
-  const proto = hdrs.get("x-forwarded-proto") || "https";
-  if (host) return `${proto}://${host}`;
-  return "http://localhost:3000";
-}
 
 const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
 
@@ -66,9 +53,13 @@ const valueStyle = {
   color: "#e2e8f0",
 } as const;
 
-export default async function Image({ params }: { params: { id: string } }) {
-  const baseUrl = resolveBaseUrl();
-  const apiUrl = new URL(`/api/swap/${encodeURIComponent(params.id)}`, baseUrl);
+export default async function Image(req: Request) {
+  const url = new URL(req.url);
+  const origin = url.origin;
+  const parts = url.pathname.split("/").filter(Boolean);
+  const idx = parts.indexOf("swap");
+  const id = idx >= 0 && parts[idx + 1] ? parts[idx + 1] : "";
+  const apiUrl = new URL(`/api/swap/${encodeURIComponent(id)}`, origin);
   let swap: any = null;
   try {
     const res = await fetch(apiUrl.toString(), { cache: "no-store" });
@@ -79,7 +70,7 @@ export default async function Image({ params }: { params: { id: string } }) {
   } catch (err) {
     console.error("[swap og] fetch", err);
   }
-  const idLabel = swap?.ID ?? swap?.id ?? params.id;
+  const idLabel = swap?.ID ?? swap?.id ?? id;
   const swapType = swap?.SwapType || "Interest Rate Swap";
   const payDir = swap?.PayFixed == null ? "" : swap.PayFixed ? "Pay fixed" : "Receive fixed";
   const npv = formatUsd(swap?.NPV);
