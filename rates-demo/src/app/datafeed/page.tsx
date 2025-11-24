@@ -14,6 +14,7 @@ import { ThemeBar } from "@/components/ThemeBar";
 import { CopyTableButton, tableToTsv } from "@/components/TableExportControls";
 import { RiskBarChart } from "@/components/RiskBarChart";
 import { buildRiskSeries } from "@/lib/riskSeries";
+import { useIsMobileViewport } from "@/lib/useIsMobileViewport";
 
 let sharedDatafeedWorker: Worker | null = null;
 let datafeedInitialized = false;
@@ -169,6 +170,7 @@ function DatafeedPageInner() {
   const floatFixingsIndexRef = React.useRef<number | null>(null);
   const counterpartyApproxIdRef = React.useRef<string | null>(null);
   const counterpartyApproxKey = React.useMemo(() => (counterpartyId ? `counterparty:${counterpartyId}` : null), [counterpartyId]);
+  const isMobile = useIsMobileViewport();
   const usdFormatter = React.useMemo(() => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 }), []);
   const formatUsd = React.useCallback((val: number | null | undefined) => {
     if (val == null || Number.isNaN(val)) return "—";
@@ -1657,7 +1659,7 @@ const renderRateEditCell = React.useCallback((params: GridRenderEditCellParams) 
               return current === "dark" ? "light" : "dark";
             })}
           />
-          <VerticalSplit top={Top} bottom={Bottom} initialTopHeight={520} />
+          {isMobile ? Bottom : <VerticalSplit top={Top} bottom={Bottom} initialTopHeight={520} />}
           {counterpartyId && (
             <Modal title={`Counterparty ${counterpartyId}`}>
               {counterpartyLoading ? (
