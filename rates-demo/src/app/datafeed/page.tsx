@@ -1660,7 +1660,7 @@ const renderRateEditCell = React.useCallback((params: GridRenderEditCellParams) 
               return current === "dark" ? "light" : "dark";
             })}
           />
-          {isMobile ? Bottom : <VerticalSplit top={Top} bottom={Bottom} initialTopHeight={520} />}
+          {isMobile ? Bottom : <VerticalSplit top={Top} bottom={Bottom} initialTopRatio={0.5} />}
           {counterpartyId && (
             <Modal title={`Counterparty ${counterpartyId}`} onClose={closeCounterparty}>
               {counterpartyLoading ? (
@@ -2110,7 +2110,8 @@ function BlotterGrid({ approxReady, approxOverrides, requestApproximation, clear
       if (val == null) return "";
       if (col.valueFormatter) {
         try {
-          return String(col.valueFormatter({ value: val, field: col.field, row: {} as any }));
+          const fmt = col.valueFormatter as (params: any) => any;
+          return String(fmt({ value: val, field: col.field, row: {} as any, id: "tmp", api: {} }));
         } catch {
           /* ignore */
         }

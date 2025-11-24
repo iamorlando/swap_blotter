@@ -4,6 +4,7 @@ import * as React from "react";
 
 type Props = {
   initialTopHeight?: number; // px
+  initialTopRatio?: number; // 0..1, used when height not provided
   minTop?: number; // px
   minBottom?: number; // px
   top: React.ReactNode;
@@ -11,14 +12,15 @@ type Props = {
 };
 
 export default function VerticalSplit({
-  initialTopHeight = 480,
+  initialTopHeight,
+  initialTopRatio = 0.5,
   minTop = 240,
   minBottom = 96,
   top,
   bottom,
 }: Props) {
   const containerRef = React.useRef<HTMLDivElement | null>(null);
-  const [topH, setTopH] = React.useState<number>(initialTopHeight);
+  const [topH, setTopH] = React.useState<number>(initialTopHeight ?? 0);
   const dragging = React.useRef(false);
 
   React.useEffect(() => {
@@ -45,6 +47,18 @@ export default function VerticalSplit({
     };
   }, [minBottom, minTop]);
 
+  React.useEffect(() => {
+    if (initialTopHeight != null) return;
+    if (topH > 0) return;
+    const c = containerRef.current;
+    if (!c) return;
+    const rect = c.getBoundingClientRect();
+    const target = rect.height * initialTopRatio;
+    const maxTop = rect.height - minBottom;
+    const clamped = Math.max(minTop, Math.min(maxTop, target));
+    setTopH(clamped);
+  }, [initialTopHeight, initialTopRatio, minBottom, minTop, topH]);
+
   function onDown() {
     dragging.current = true;
     document.body.style.cursor = "row-resize";
@@ -53,15 +67,16 @@ export default function VerticalSplit({
 
   return (
     <div ref={containerRef} className="flex flex-col min-h-[70vh] h-[calc(100vh-2rem)]">
-      <div className="overflow-auto" style={{ height: topH }}>{top}</div>
+      <div className="min-h-0 overflow-auto" style={{ height: topH || minTop }}>
+        {top}
+      </div>
       <div
         className="h-2 cursor-row-resize bg-gray-800 hover:bg-gray-700 active:bg-gray-600"
         onMouseDown={onDown}
         role="separator"
         aria-orientation="horizontal"
       />
-      <div className="flex-1 overflow-auto">{bottom}</div>
+      <div className="flex-1 min-h-0 overflow-auto">{bottom}</div>
     </div>
   );
 }
-

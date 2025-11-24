@@ -57,9 +57,16 @@ export default function Modal({ children, title, actions, onClose }: Props) {
                 title={maximized ? "Restore" : "Maximize"}
                 aria-label={maximized ? "Restore" : "Maximize"}
               >
-                <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-                  <path d="M5 3a2 2 0 00-2 2v2a1 1 0 102 0V5h2a1 1 0 000-2H5zM13 3a1 1 0 000 2h2v2a1 1 0 102 0V5a2 2 0 00-2-2h-2zM3 13a1 1 0 112 0v2h2a1 1 0 110 2H5a2 2 0 01-2-2v-2zM17 13a1 1 0 10-2 0v2h-2a1 1 0 100 2h2a2 2 0 002-2v-2z" />
-                </svg>
+                {maximized ? (
+                  <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                    <path d="M5 7.75A2.75 2.75 0 017.75 5h6.5A2.75 2.75 0 0117 7.75v6.5A2.75 2.75 0 0114.25 17h-6.5A2.75 2.75 0 015 14.25v-6.5zm2.75-1.25a1.25 1.25 0 00-1.25 1.25v6.5c0 .69.56 1.25 1.25 1.25h6.5c.69 0 1.25-.56 1.25-1.25v-6.5c0-.69-.56-1.25-1.25-1.25h-6.5z" />
+                    <path d="M3 3.75A.75.75 0 013.75 3h9.5a.75.75 0 110 1.5h-8.75V13a.75.75 0 01-1.5 0v-9.25z" />
+                  </svg>
+                ) : (
+                  <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                    <path d="M5 3a2 2 0 00-2 2v2a1 1 0 102 0V5h2a1 1 0 000-2H5zM13 3a1 1 0 000 2h2v2a1 1 0 102 0V5a2 2 0 00-2-2h-2zM3 13a1 1 0 112 0v2h2a1 1 0 110 2H5a2 2 0 01-2-2v-2zM17 13a1 1 0 10-2 0v2h-2a1 1 0 100 2h2a2 2 0 002-2v-2z" />
+                  </svg>
+                )}
               </button>
             )}
             <button onClick={onCloseRef.current} className="text-gray-400 hover:text-gray-200 p-2" aria-label="Close">
