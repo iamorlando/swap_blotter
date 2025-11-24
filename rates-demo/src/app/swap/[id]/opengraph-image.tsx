@@ -1,12 +1,23 @@
+import { headers } from "next/headers";
 import { ImageResponse } from "next/og";
 export const runtime = "edge";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 export const alt = "Swap summary";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 
-const baseUrl =
-  process.env.NEXT_PUBLIC_SITE_URL ||
-  (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
+function resolveBaseUrl() {
+  const envUrl =
+    process.env.NEXT_PUBLIC_SITE_URL ||
+    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null);
+  if (envUrl) return envUrl;
+  const hdrs = headers();
+  const host = hdrs.get("x-forwarded-host") || hdrs.get("host");
+  const proto = hdrs.get("x-forwarded-proto") || "https";
+  if (host) return `${proto}://${host}`;
+  return "http://localhost:3000";
+}
 
 const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
 
@@ -21,7 +32,7 @@ const formatPct = (val: any) => {
   if (val == null) return "—";
   const num = Number(val);
   if (!Number.isFinite(num)) return "—";
-  return `${(num).toFixed(2)}%`;
+  return `${(num ).toFixed(2)}%`;
 };
 
 const formatDate = (val: any) => {
@@ -56,6 +67,7 @@ const valueStyle = {
 } as const;
 
 export default async function Image({ params }: { params: { id: string } }) {
+  const baseUrl = resolveBaseUrl();
   const apiUrl = new URL(`/api/swap/${encodeURIComponent(params.id)}`, baseUrl);
   let swap: any = null;
   try {
