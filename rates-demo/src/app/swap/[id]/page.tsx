@@ -1,10 +1,11 @@
 import type { Metadata } from "next";
-import { fetchSwapById } from "@/lib/swaps";
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
+import { fetchSwapById } from "@/lib/swaps";
 
 const baseUrl =
   process.env.NEXT_PUBLIC_SITE_URL ||
-  (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : undefined);
+  (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
 
 export async function generateMetadata({ params }: { params: { id: string } }): Promise<Metadata> {
   const swap = await fetchSwapById(params.id);
@@ -43,5 +44,22 @@ export async function generateMetadata({ params }: { params: { id: string } }): 
 
 export default function SwapFullPage({ params }: { params: { id: string } }) {
   const { id } = params;
-  redirect(`/?swap=${encodeURIComponent(id)}`);
+  const ua = headers().get("user-agent") || "";
+  const isBot = /facebookexternalhit|facebot|twitterbot|slackbot|discord|discordbot|linkedinbot|telegrambot|whatsapp|preview|crawler|spider|bot/i.test(
+    ua
+  );
+
+  if (!isBot) {
+    redirect(`/?swap=${encodeURIComponent(id)}`);
+  }
+
+  return (
+    <div style={{ padding: 32, fontFamily: "sans-serif", color: "#e5e7eb", background: "#0b1220", minHeight: "100vh" }}>
+      <h1 style={{ fontSize: 28, marginBottom: 12 }}>Swap {id}</h1>
+      <p style={{ color: "#cbd5e1", maxWidth: 640 }}>
+        This endpoint is primarily for link previews. If you are seeing this page, please visit the datafeed view:
+        <a href={`/?swap=${encodeURIComponent(id)}`} style={{ color: "#60a5fa", marginLeft: 8 }}>Open swap</a>
+      </p>
+    </div>
+  );
 }
