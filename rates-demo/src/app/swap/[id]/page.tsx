@@ -10,8 +10,8 @@ export async function generateMetadata({ params }: { params: { id: string } }): 
   const swapId = swap?.ID ?? swap?.id ?? params.id;
   const descParts = [
     swap?.SwapType ? String(swap.SwapType) : null,
-    swap?.FixedRate != null ? `Fixed ${Number(swap.FixedRate * 100).toFixed(2)}%` : null,
-    swap?.ParRate != null ? `Par ${Number(swap.ParRate * 100).toFixed(2)}%` : null,
+    swap?.FixedRate != null ? `Fixed ${Number(swap.FixedRate).toFixed(2)}%` : null,
+    swap?.ParRate != null ? `Par ${Number(swap.ParRate).toFixed(2)}%` : null,
     swap?.Notional != null ? `Notional ${Number(swap.Notional).toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 })}` : null,
   ].filter(Boolean);
   const description = descParts.length ? descParts.join(" · ") : "Live swap snapshot from the rates blotter.";

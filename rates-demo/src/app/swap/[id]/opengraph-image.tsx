@@ -1,6 +1,5 @@
 import { ImageResponse } from "next/og";
 export const runtime = "edge";
-export const dynamic = "force-dynamic";
 export const alt = "Swap summary";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
@@ -20,7 +19,7 @@ const formatUsd = (val: any) => {
 
 const formatPct = (val: any) => {
   if (val == null) return "—";
-  const num = Number(val)/100.0;
+  const num = Number(val);
   if (!Number.isFinite(num)) return "—";
   return `${(num).toFixed(2)}%`;
 };
