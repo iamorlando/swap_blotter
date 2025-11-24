@@ -1,4 +1,5 @@
 import { ImageResponse } from "next/og";
+export const runtime = "edge";
 export const alt = "Swap summary";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
@@ -55,13 +56,17 @@ const valueStyle = {
 } as const;
 
 export default async function Image({ params }: { params: { id: string } }) {
-  const swap = await fetch(`${baseUrl}/api/swap/${encodeURIComponent(params.id)}`)
-    .then((res) => (res.ok ? res.json() : null))
-    .then((data) => data?.swap ?? null)
-    .catch((err) => {
-      console.error("[swap og] fetch", err);
-      return null;
-    });
+  const apiUrl = new URL(`/api/swap/${encodeURIComponent(params.id)}`, baseUrl);
+  let swap: any = null;
+  try {
+    const res = await fetch(apiUrl.toString(), { cache: "no-store" });
+    if (res.ok) {
+      const data = await res.json();
+      swap = data?.swap ?? null;
+    }
+  } catch (err) {
+    console.error("[swap og] fetch", err);
+  }
   const idLabel = swap?.ID ?? swap?.id ?? params.id;
   const swapType = swap?.SwapType || "Interest Rate Swap";
   const payDir = swap?.PayFixed == null ? "" : swap.PayFixed ? "Pay fixed" : "Receive fixed";
