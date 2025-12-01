@@ -17,7 +17,7 @@ export async function generateMetadata({ params }: { params: { id: string } }): 
     swap?.Notional != null ? `Notional ${Number(swap.Notional).toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 })}` : null,
   ].filter(Boolean);
   const description = descParts.length ? descParts.join(" · ") : "Live swap snapshot from the rates blotter.";
-  const imagePath = `/swap/${params.id}/opengraph-image`;
+  const imagePath = `/api/swap-og?id=${encodeURIComponent(params.id)}`;
 
   const metadata: Metadata = {
     title: `Swap ${swapId} · As of ${asOf}`,

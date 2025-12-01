@@ -1,8 +1,8 @@
 import { ImageResponse } from "next/og";
 
-export const runtime = "edge";
-export const dynamic = "force-dynamic";
-export const revalidate = 0;
+// export const runtime = "edge";
+// export const dynamic = "force-dynamic";
+// export const revalidate = 0;
 
 const size = { width: 1200, height: 630 };
 const contentType = "image/png";
@@ -213,10 +213,10 @@ export async function GET(req: Request) {
           </div>
         </div>
       </div>
-    ),
-    {
-      ...size,
-      headers: { "content-type": contentType },
-    }
+    ),size
+    // {
+    //   ...size,
+      // headers: { "content-type": contentType },
+    // }
   );
 }
