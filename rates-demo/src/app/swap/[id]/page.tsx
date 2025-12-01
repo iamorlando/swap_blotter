@@ -1,9 +1,7 @@
 import type { Metadata } from "next";
 import { fetchSwapById } from "@/lib/swaps";
 
-const baseUrl =
-  process.env.NEXT_PUBLIC_SITE_URL ||
-  (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
+const baseUrl =process.env.APP_URL ? process.env.APP_URL : "http://localhost:3000";
 
 export async function generateMetadata({ params }: { params: { id: string } }): Promise<Metadata> {
   const swap = await fetchSwapById(params.id);
@@ -17,7 +15,7 @@ export async function generateMetadata({ params }: { params: { id: string } }): 
     swap?.Notional != null ? `Notional ${Number(swap.Notional).toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 })}` : null,
   ].filter(Boolean);
   const description = descParts.length ? descParts.join(" · ") : "Live swap snapshot from the rates blotter.";
-  const imagePath = `${baseUrl}/api/swap-og?id=${encodeURIComponent(params.id)}`;
+  const imagePath = `/api/swap-og?id=${encodeURIComponent(params.id)}`;
 
   const metadata: Metadata = {
     title: `Swap ${swapId} · As of ${asOf}`,
