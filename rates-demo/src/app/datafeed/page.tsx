@@ -1922,6 +1922,19 @@ function BlotterGrid({ approxReady, approxOverrides, requestApproximation, clear
     const day = String(d.getUTCDate()).padStart(2, "0");
     return `${y}-${m}-${day}`;
   }, []);
+  const millionCountFormatter = React.useMemo(
+    () => new Intl.NumberFormat("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 2 }),
+    [],
+  );
+  const formatCount = React.useCallback((val: number | null | undefined) => {
+    if (val == null) return "0";
+    const num = Number(val);
+    if (!Number.isFinite(num)) return "0";
+    if (Math.abs(num) >= 1_000_000) {
+      return `${millionCountFormatter.format(num / 1_000_000)}MM`;
+    }
+    return num.toLocaleString("en-US");
+  }, [millionCountFormatter]);
 
   const apiCols: ApiColumn[] = React.useMemo(() => generatedColumns || [], []);
   const initialColumns: GridColDef<BlotterRow>[] = React.useMemo(() => {
