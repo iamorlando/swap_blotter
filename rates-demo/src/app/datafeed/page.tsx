@@ -173,10 +173,23 @@ function DatafeedPageInner() {
   const counterpartyApproxKey = React.useMemo(() => (counterpartyId ? `counterparty:${counterpartyId}` : null), [counterpartyId]);
   const isMobile = useIsMobileViewport();
   const usdFormatter = React.useMemo(() => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 }), []);
+  const millionCountFormatter = React.useMemo(
+    () => new Intl.NumberFormat("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 2 }),
+    [],
+  );
   const formatUsd = React.useCallback((val: number | null | undefined) => {
     if (val == null || Number.isNaN(val)) return "—";
     return usdFormatter.format(val).replace("$", "$ ");
   }, [usdFormatter]);
+  const formatCount = React.useCallback((val: number | null | undefined) => {
+    if (val == null) return "0";
+    const num = Number(val);
+    if (!Number.isFinite(num)) return "0";
+    if (Math.abs(num) >= 1_000_000) {
+      return `${millionCountFormatter.format(num / 1_000_000)}MM`;
+    }
+    return num.toLocaleString("en-US");
+  }, [millionCountFormatter]);
   const formatDateValue = React.useCallback((value: any) => {
     if (!value) return "—";
     const d = new Date(value);
@@ -1805,7 +1818,7 @@ const renderRateEditCell = React.useCallback((params: GridRenderEditCellParams) 
                             </button>
                             <span className="text-gray-400">
                               {counterpartySwapCount > 0
-                                ? `${counterpartyPageStart}–${counterpartyPageEnd} of ${counterpartySwapCount}`
+                                ? `${counterpartyPageStart}–${counterpartyPageEnd} of ${formatCount(counterpartySwapCount)}`
                                 : "0 of 0"}
                             </span>
                           </div>
@@ -2236,7 +2249,7 @@ function BlotterGrid({ approxReady, approxOverrides, requestApproximation, clear
             </button>
             <span className="text-gray-400">
               {rowCount > 0
-                ? `${paginationModel.page * paginationModel.pageSize + 1}–${Math.min((paginationModel.page + 1) * paginationModel.pageSize, rowCount)} of ${rowCount}`
+                ? `${paginationModel.page * paginationModel.pageSize + 1}–${Math.min((paginationModel.page + 1) * paginationModel.pageSize, rowCount)} of ${formatCount(rowCount)}`
                 : '0 of 0'}
             </span>
           </div>

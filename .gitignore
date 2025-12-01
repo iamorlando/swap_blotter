@@ -2,3 +2,4 @@
 **.csv
 rates-demo/swaps.duckdb
 rates-demo/scripts/reset_neon_from_local.sh
+rates-demo/scripts/append_neon_from_local_v2.sh
