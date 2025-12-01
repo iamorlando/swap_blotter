@@ -93,7 +93,7 @@ def aproximate_counterparty_cashflows(cf_df: DataFrame, cf_risk_df: DataFrame, m
     ordered_risk = risk_df.reindex(cf_df[key_col]).fillna(0.0)
     risk_matrix = ordered_risk[[f'c_{col}' for col in term_cols]].to_numpy(dtype="float64")
     changes = md_changes_df.loc[term_cols, "Change"].to_numpy(dtype="float64")
-    deltas = (risk_matrix * 10_000) @ changes
+    deltas = (risk_matrix ) @ changes*100
 
     # Base cashflow per row
     base_cf = cf_df.get("TotalCashflow")
